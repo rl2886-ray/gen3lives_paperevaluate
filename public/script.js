@@ -189,12 +189,12 @@ async function evaluateText(text) {
 
 async function evaluateContent(text) {
     const prompt = `Please evaluate this Statement of Purpose (SOP) text for content quality. Focus on:
-    - Personal background details
-    - Educational experience relevance
-    - Career goals clarity
-    - School/program choice reasoning
-    - Uniqueness demonstration
-    - Specific examples
+    - Personal Background Detail
+    - Educational Experience Relevance
+    - Career Goals Clarity
+    - School/Program Choice Reasoning
+    - Uniqueness Demonstration
+    - Specific Examples
 
     Provide a score out of 100 and detailed feedback.
     Format your response as: Score: X/100\nFeedback: [your detailed feedback]
@@ -225,11 +225,11 @@ async function evaluateContent(text) {
 
 async function evaluateNarrative(text) {
     const prompt = `Please evaluate this Statement of Purpose (SOP) text for narrative quality. Focus on:
-    - Opening engagement
-    - Narrative coherence
-    - Conflict resolution
-    - Narrative depth
-    - Closing impression
+    - Opening Engagement
+    - Narrative Coherence
+    - Conflict Resolution
+    - Narrative Depth
+    - Closing Impression
 
     Provide a score out of 100 and detailed feedback.
     Format your response as: Score: X/100\nFeedback: [your detailed feedback]
@@ -257,6 +257,8 @@ async function evaluateNarrative(text) {
         return { score: 0, feedback: 'Error evaluating narrative. Please try again.' };
     }
 }
+
+
 
 async function evaluateLanguage(text) {
     const prompt = `Please evaluate this Statement of Purpose (SOP) text for language quality. Focus on:
