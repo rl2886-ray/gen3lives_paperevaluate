@@ -146,14 +146,18 @@ async function evaluateText(text) {
     });
 
     try {
+        console.log('Starting evaluation...');
         // Content evaluation (40%)
         const contentResult = await evaluateContent(text);
+        console.log('Content evaluation result:', contentResult);
 
         // Narrative evaluation (40%)
         const narrativeResult = await evaluateNarrative(text);
+        console.log('Narrative evaluation result:', narrativeResult);
 
         // Language evaluation (20%)
         const languageResult = await evaluateLanguage(text);
+        console.log('Language evaluation result:', languageResult);
 
         // Calculate final weighted score
         const finalScore = Math.round(
@@ -162,12 +166,15 @@ async function evaluateText(text) {
             languageResult.score * WEIGHTS.language
         );
 
-        return {
+        const results = {
             content: { score: contentResult.score, feedback: contentResult.feedback },
             narrative: { score: narrativeResult.score, feedback: narrativeResult.feedback },
             language: { score: languageResult.score, feedback: languageResult.feedback },
             final_score: finalScore
         };
+
+        console.log('Final evaluation results:', results);
+        return results;
     } catch (error) {
         console.error('Error during evaluation:', error);
         alert('An error occurred during evaluation. Please try again.');
@@ -399,15 +406,16 @@ function displayScores(scores) {
     }
 }
 
-// Helper function to parse LLM response
 function parseEvaluationResponse(response) {
     try {
+        console.log('Parsing evaluation response:', response);
         const scoreMatch = response.match(/Score:\s*(\d+)\/100/);
         const score = scoreMatch ? parseInt(scoreMatch[1]) : 0;
 
         const feedbackMatch = response.match(/Feedback:\s*([\s\S]*?)(?=Score:|$)/);
         const feedback = feedbackMatch ? feedbackMatch[1].trim() : 'No feedback available';
 
+        console.log('Parsed result:', { score, feedback });
         return { score, feedback };
     } catch (error) {
         console.error('Error parsing evaluation response:', error);
