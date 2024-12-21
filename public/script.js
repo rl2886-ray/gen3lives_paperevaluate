@@ -142,56 +142,60 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
 async function evaluateText(text) {
-    console.log('Starting evaluateText function...');
-    // Show loading state
+    console.log('Starting SOP evaluation...');
+
+    // Set loading state for all score cards
     document.querySelectorAll('.score-card').forEach(card => {
         card.classList.add('loading');
     });
+    document.querySelector('.final-score').classList.add('loading');
 
     try {
-        console.log('Starting evaluation with text length:', text.length);
-        // Content evaluation (40%)
+        // Evaluate each dimension
+        console.log('Evaluating content dimension...');
         const contentResult = await evaluateContent(text);
-        console.log('Content evaluation result:', contentResult);
+        console.log('Content evaluation complete:', contentResult);
 
-        // Narrative evaluation (40%)
+        console.log('Evaluating narrative dimension...');
         const narrativeResult = await evaluateNarrative(text);
-        console.log('Narrative evaluation result:', narrativeResult);
+        console.log('Narrative evaluation complete:', narrativeResult);
 
-        // Language evaluation (20%)
+        console.log('Evaluating language dimension...');
         const languageResult = await evaluateLanguage(text);
-        console.log('Language evaluation result:', languageResult);
+        console.log('Language evaluation complete:', languageResult);
 
-        // Calculate final weighted score
-        const finalScore = Math.round(
+        // Calculate final score
+        const finalScore = (
             contentResult.score * WEIGHTS.content +
             narrativeResult.score * WEIGHTS.narrative +
             languageResult.score * WEIGHTS.language
-        );
+        ) / 100;
 
+        // Prepare results object
         const results = {
-            content: { score: contentResult.score, feedback: contentResult.feedback },
-            narrative: { score: narrativeResult.score, feedback: narrativeResult.feedback },
-            language: { score: languageResult.score, feedback: languageResult.feedback },
+            content: contentResult,
+            narrative: narrativeResult,
+            language: languageResult,
             final_score: finalScore
         };
 
-        // Generate and add modification suggestions
+        // Generate modification suggestions
         console.log('Generating modification suggestions...');
         const suggestions = await generateModificationSuggestions(text, results);
+        console.log('Generated suggestions:', suggestions);
         results.suggestions = suggestions;
 
-        console.log('Final evaluation results:', results);
+        // Display results
+        console.log('Displaying evaluation results:', results);
+        displayScores(results);
+
         return results;
     } catch (error) {
         console.error('Error during evaluation:', error);
-        alert('An error occurred during evaluation. Please try again.');
-        throw error;
-    } finally {
-        // Remove loading state
-        document.querySelectorAll('.score-card').forEach(card => {
+        document.querySelectorAll('.score-card, .final-score').forEach(card => {
             card.classList.remove('loading');
         });
+        throw error;
     }
 }
 
@@ -336,13 +340,20 @@ Format your response as a bulleted list of specific suggestions, focusing on the
                 messages: [
                     { role: "system", content: "You are an expert SOP evaluator providing specific improvement suggestions." },
                     { role: "user", content: prompt }
-                ]
+                ],
+                temperature: 0.7,
+                max_tokens: 1000
             })
         });
 
         console.log('Received API response for suggestions');
         const data = await response.json();
         console.log('Parsed suggestions response:', data);
+
+        if (!data.choices?.[0]?.message?.content) {
+            throw new Error('Invalid API response format');
+        }
+
         return data.choices[0].message.content;
     } catch (error) {
         console.error('Error generating suggestions:', error);
@@ -485,7 +496,16 @@ function displayScores(scores) {
 
     if (suggestionsSection && suggestionsContent && scores.suggestions) {
         console.log('Found suggestions elements, updating content');
-        suggestionsContent.textContent = scores.suggestions;
+        const formattedSuggestions = scores.suggestions
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line.length > 0)
+            .join('\n');
+
+        suggestionsContent.innerHTML = formattedSuggestions
+            .replace(/\n/g, '<br>')
+            .replace(/•/g, '&bull;')
+            .replace(/\*/g, '&bull;');
         suggestionsSection.hidden = false;
     } else {
         console.log('Missing elements or suggestions:', {
