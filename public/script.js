@@ -131,22 +131,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Handle evaluation
-    evaluateBtn.addEventListener('click', () => {
+    evaluateBtn.addEventListener('click', async () => {
+        console.log('Evaluate button clicked');
         const text = sopText.value.trim();
-        const scores = evaluateText(text);
+        console.log('Text to evaluate:', text.substring(0, 100) + '...');
+        const scores = await evaluateText(text);
+        console.log('Evaluation completed, displaying scores:', scores);
         displayScores(scores);
         resultsSection.hidden = false;
     });
-});
 
 async function evaluateText(text) {
+    console.log('Starting evaluateText function...');
     // Show loading state
     document.querySelectorAll('.score-card').forEach(card => {
         card.classList.add('loading');
     });
 
     try {
-        console.log('Starting evaluation...');
+        console.log('Starting evaluation with text length:', text.length);
         // Content evaluation (40%)
         const contentResult = await evaluateContent(text);
         console.log('Content evaluation result:', contentResult);
@@ -172,6 +175,11 @@ async function evaluateText(text) {
             language: { score: languageResult.score, feedback: languageResult.feedback },
             final_score: finalScore
         };
+
+        // Generate and add modification suggestions
+        console.log('Generating modification suggestions...');
+        const suggestions = await generateModificationSuggestions(text, results);
+        results.suggestions = suggestions;
 
         console.log('Final evaluation results:', results);
         return results;
@@ -295,6 +303,52 @@ async function evaluateLanguage(text) {
     }
 }
 
+// Function to generate modification suggestions
+async function generateModificationSuggestions(text, scores) {
+    console.log('Generating modification suggestions...', { text: text.substring(0, 100) + '...', scores });
+    const prompt = `As an expert SOP evaluator, please provide specific suggestions to improve this Statement of Purpose. Focus on the following aspects:
+
+1. Content (${scores.content}/100):
+${scores.contentFeedback}
+
+2. Narrative Structure (${scores.narrative}/100):
+${scores.narrativeFeedback}
+
+3. Language Usage (${scores.language}/100):
+${scores.languageFeedback}
+
+Please analyze the following SOP and provide clear, actionable suggestions for improvement:
+
+${text}
+
+Format your response as a bulleted list of specific suggestions, focusing on the most critical improvements needed.`;
+
+    try {
+        console.log('Making API call for suggestions...');
+        const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer sk-5aa918e7fa814f4fa8026cf5084edb5a'
+            },
+            body: JSON.stringify({
+                model: "deepseek-chat",
+                messages: [
+                    { role: "system", content: "You are an expert SOP evaluator providing specific improvement suggestions." },
+                    { role: "user", content: prompt }
+                ]
+            })
+        });
+
+        console.log('Received API response for suggestions');
+        const data = await response.json();
+        console.log('Parsed suggestions response:', data);
+        return data.choices[0].message.content;
+    } catch (error) {
+        console.error('Error generating suggestions:', error);
+        return 'Unable to generate suggestions at this time.';
+    }
+}
 // Helper functions for content evaluation
 function hasPersonalBackground(text) {
     const keywords = ['I', 'my', 'background', 'experience', 'grew up', 'family'];
@@ -383,9 +437,16 @@ function scoreByKeywords(text, keywords) {
 
 // Display scores in the UI
 function displayScores(scores) {
+    console.log('Displaying scores:', scores);
+
+    // Remove loading state from all score cards
+    document.querySelectorAll('.score-card').forEach(card => {
+        card.classList.remove('loading');
+    });
+
     // Update dimension scores and feedback
     Object.entries(scores).forEach(([dimension, result]) => {
-        if (dimension === 'final_score') return;
+        if (dimension === 'final_score' || dimension === 'suggestions') return;
 
         const card = document.querySelector(`[data-dimension="${dimension}"]`);
         if (card) {
@@ -393,18 +454,45 @@ function displayScores(scores) {
             const feedbackElement = card.querySelector('.feedback');
 
             if (scoreElement) {
-                scoreElement.textContent = `${result.score}/100`;
+                scoreElement.textContent = `${Math.round(result.score)}/100`;
             }
             if (feedbackElement) {
-                feedbackElement.textContent = result.feedback;
+                feedbackElement.textContent = result.feedback || 'No feedback available';
             }
+
+            // Remove loading state for this specific card
+            card.classList.remove('loading');
         }
     });
 
     // Update final score
     const finalScoreElement = document.querySelector('.final-score .score');
-    if (finalScoreElement) {
-        finalScoreElement.textContent = `${scores.final_score}/100`;
+    if (finalScoreElement && scores.final_score !== undefined) {
+        finalScoreElement.textContent = `${Math.round(scores.final_score)}/100`;
+    }
+
+    // Show evaluation results section
+    const evaluationResults = document.querySelector('.evaluation-results');
+    if (evaluationResults) {
+        evaluationResults.hidden = false;
+    }
+
+    // Display suggestions
+    console.log('Attempting to display suggestions:', scores.suggestions);
+    const suggestionsSection = document.querySelector('.modification-suggestions');
+    const suggestionsContent = document.querySelector('.suggestions-content');
+    console.log('Suggestions elements:', { suggestionsSection, suggestionsContent });
+
+    if (suggestionsSection && suggestionsContent && scores.suggestions) {
+        console.log('Found suggestions elements, updating content');
+        suggestionsContent.textContent = scores.suggestions;
+        suggestionsSection.hidden = false;
+    } else {
+        console.log('Missing elements or suggestions:', {
+            suggestionsSection: !!suggestionsSection,
+            suggestionsContent: !!suggestionsContent,
+            hasSuggestions: !!scores.suggestions
+        });
     }
 }
 
@@ -424,3 +512,6 @@ function parseEvaluationResponse(response) {
         return { score: 0, feedback: 'Error parsing evaluation response.' };
     }
 }
+
+// Close DOMContentLoaded event listener
+});
