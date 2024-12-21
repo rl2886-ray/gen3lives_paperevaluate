@@ -139,97 +139,151 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-function evaluateText(text) {
-    // Split text into sentences for analysis
-    const sentences = text.split(/[.!?]+/).filter(s => s.trim());
+async function evaluateText(text) {
+    // Show loading state
+    document.querySelectorAll('.score-card').forEach(card => {
+        card.classList.add('loading');
+    });
 
-    // Content evaluation (40%)
-    const contentScore = evaluateContent(text);
+    try {
+        // Content evaluation (40%)
+        const contentResult = await evaluateContent(text);
 
-    // Narrative evaluation (40%)
-    const narrativeScore = evaluateNarrative(text);
+        // Narrative evaluation (40%)
+        const narrativeResult = await evaluateNarrative(text);
 
-    // Language evaluation (20%)
-    const languageScore = evaluateLanguage(sentences);
+        // Language evaluation (20%)
+        const languageResult = await evaluateLanguage(text);
 
-    // Calculate final weighted score
-    const finalScore = Math.round(
-        contentScore * WEIGHTS.content +
-        narrativeScore * WEIGHTS.narrative +
-        languageScore * WEIGHTS.language
-    );
+        // Calculate final weighted score
+        const finalScore = Math.round(
+            contentResult.score * WEIGHTS.content +
+            narrativeResult.score * WEIGHTS.narrative +
+            languageResult.score * WEIGHTS.language
+        );
 
-    return {
-        content: contentScore,
-        narrative: narrativeScore,  // Changed from 'story' to 'narrative'
-        language: languageScore,
-        final_score: finalScore
-    };
+        return {
+            content: { score: contentResult.score, feedback: contentResult.feedback },
+            narrative: { score: narrativeResult.score, feedback: narrativeResult.feedback },
+            language: { score: languageResult.score, feedback: languageResult.feedback },
+            final_score: finalScore
+        };
+    } catch (error) {
+        console.error('Error during evaluation:', error);
+        alert('An error occurred during evaluation. Please try again.');
+        throw error;
+    } finally {
+        // Remove loading state
+        document.querySelectorAll('.score-card').forEach(card => {
+            card.classList.remove('loading');
+        });
+    }
 }
 
-function evaluateContent(text) {
-    // Simplified scoring for demo purposes
-    // In a real implementation, this would use NLP to analyze:
-    // - Personal background details
-    // - Educational experience relevance
-    // - Career goals clarity
-    // - School/program choice reasoning
-    // - Uniqueness demonstration
-    // - Specific examples
+async function evaluateContent(text) {
+    const prompt = `Please evaluate this Statement of Purpose (SOP) text for content quality. Focus on:
+    - Personal background details
+    - Educational experience relevance
+    - Career goals clarity
+    - School/program choice reasoning
+    - Uniqueness demonstration
+    - Specific examples
 
-    const criteria = [
-        hasPersonalBackground(text),
-        hasEducationalExperience(text),
-        hasCareerGoals(text),
-        hasSchoolChoice(text),
-        hasUniqueness(text),
-        hasSpecificExamples(text)
-    ];
+    Provide a score out of 100 and detailed feedback.
+    Format your response as: Score: X/100\nFeedback: [your detailed feedback]
 
-    // Each criterion is worth up to 5 points
-    const totalPoints = criteria.reduce((sum, score) => sum + score, 0);
-    return Math.round((totalPoints / (criteria.length * 5)) * 100);
+    Text to evaluate:
+    ${text}`;
+
+    try {
+        const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer sk-5aa918e7fa814f4fa8026cf5084edb5a'
+            },
+            body: JSON.stringify({
+                model: "deepseek-chat",
+                messages: [{ role: "user", content: prompt }]
+            })
+        });
+
+        const data = await response.json();
+        return parseEvaluationResponse(data.choices[0].message.content);
+    } catch (error) {
+        console.error('Error evaluating content:', error);
+        return { score: 0, feedback: 'Error evaluating content. Please try again.' };
+    }
 }
 
-function evaluateNarrative(text) {
-    // Simplified scoring for demo purposes
-    // In a real implementation, this would analyze:
-    // - Opening engagement
-    // - Narrative coherence
-    // - Conflict resolution
-    // - Narrative depth
-    // - Closing impression
+async function evaluateNarrative(text) {
+    const prompt = `Please evaluate this Statement of Purpose (SOP) text for narrative quality. Focus on:
+    - Opening engagement
+    - Narrative coherence
+    - Conflict resolution
+    - Narrative depth
+    - Closing impression
 
-    const criteria = [
-        hasStrongOpening(text),
-        hasCoherentStructure(text),
-        hasConflictResolution(text),
-        hasNarrativeDepth(text),
-        hasStrongClosing(text)
-    ];
+    Provide a score out of 100 and detailed feedback.
+    Format your response as: Score: X/100\nFeedback: [your detailed feedback]
 
-    const totalPoints = criteria.reduce((sum, score) => sum + score, 0);
-    return Math.round((totalPoints / (criteria.length * 5)) * 100);
+    Text to evaluate:
+    ${text}`;
+
+    try {
+        const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer sk-5aa918e7fa814f4fa8026cf5084edb5a'
+            },
+            body: JSON.stringify({
+                model: "deepseek-chat",
+                messages: [{ role: "user", content: prompt }]
+            })
+        });
+
+        const data = await response.json();
+        return parseEvaluationResponse(data.choices[0].message.content);
+    } catch (error) {
+        console.error('Error evaluating narrative:', error);
+        return { score: 0, feedback: 'Error evaluating narrative. Please try again.' };
+    }
 }
 
-function evaluateLanguage(sentences) {
-    // Count sentences needing modification
-    const modificationNeeded = sentences.filter(sentence =>
-        needsModification(sentence)
-    ).length;
+async function evaluateLanguage(text) {
+    const prompt = `Please evaluate this Statement of Purpose (SOP) text for language quality. Focus on:
+    - Grammar and mechanics
+    - Vocabulary usage
+    - Sentence structure
+    - Academic tone
+    - Overall fluency
 
-    // Calculate modification percentage
-    const modificationPercentage = (modificationNeeded / sentences.length) * 100;
+    Provide a score out of 100 and detailed feedback.
+    Format your response as: Score: X/100\nFeedback: [your detailed feedback]
 
-    // Score based on modification percentage
-    let score;
-    if (modificationPercentage <= 5) score = 5;
-    else if (modificationPercentage <= 10) score = 4;
-    else if (modificationPercentage <= 20) score = 3;
-    else if (modificationPercentage <= 30) score = 2;
-    else score = 1;
+    Text to evaluate:
+    ${text}`;
 
-    return Math.round((score / 5) * 100);
+    try {
+        const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer sk-5aa918e7fa814f4fa8026cf5084edb5a'
+            },
+            body: JSON.stringify({
+                model: "deepseek-chat",
+                messages: [{ role: "user", content: prompt }]
+            })
+        });
+
+        const data = await response.json();
+        return parseEvaluationResponse(data.choices[0].message.content);
+    } catch (error) {
+        console.error('Error evaluating language:', error);
+        return { score: 0, feedback: 'Error evaluating language. Please try again.' };
+    }
 }
 
 // Helper functions for content evaluation
@@ -320,15 +374,43 @@ function scoreByKeywords(text, keywords) {
 
 // Display scores in the UI
 function displayScores(scores) {
-    // Update dimension scores
-    Object.entries(scores).forEach(([dimension, score]) => {
-        const scoreElement = document.querySelector(`[data-dimension="${dimension}"] .score`);
-        if (scoreElement) {
-            scoreElement.textContent = `${score}/100`;
+    // Update dimension scores and feedback
+    Object.entries(scores).forEach(([dimension, result]) => {
+        if (dimension === 'final_score') return;
+
+        const card = document.querySelector(`[data-dimension="${dimension}"]`);
+        if (card) {
+            const scoreElement = card.querySelector('.score');
+            const feedbackElement = card.querySelector('.feedback');
+
+            if (scoreElement) {
+                scoreElement.textContent = `${result.score}/100`;
+            }
+            if (feedbackElement) {
+                feedbackElement.textContent = result.feedback;
+            }
         }
     });
 
     // Update final score
     const finalScoreElement = document.querySelector('.final-score .score');
-    finalScoreElement.textContent = `${scores.final_score}/100`;
+    if (finalScoreElement) {
+        finalScoreElement.textContent = `${scores.final_score}/100`;
+    }
+}
+
+// Helper function to parse LLM response
+function parseEvaluationResponse(response) {
+    try {
+        const scoreMatch = response.match(/Score:\s*(\d+)\/100/);
+        const score = scoreMatch ? parseInt(scoreMatch[1]) : 0;
+
+        const feedbackMatch = response.match(/Feedback:\s*([\s\S]*?)(?=Score:|$)/);
+        const feedback = feedbackMatch ? feedbackMatch[1].trim() : 'No feedback available';
+
+        return { score, feedback };
+    } catch (error) {
+        console.error('Error parsing evaluation response:', error);
+        return { score: 0, feedback: 'Error parsing evaluation response.' };
+    }
 }

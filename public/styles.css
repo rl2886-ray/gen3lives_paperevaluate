@@ -156,6 +156,34 @@ button:disabled {
     border-radius: 0.5rem;
     padding: 1.5rem;
     box-shadow: var(--shadow);
+    position: relative;
+}
+
+.score-card.loading::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.8);
+    border-radius: 0.5rem;
+    z-index: 1;
+}
+
+.score-card.loading::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 30px;
+    height: 30px;
+    border: 3px solid var(--primary-color);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    z-index: 2;
 }
 
 .score-card h3 {
@@ -230,4 +258,18 @@ details li {
     .score-cards {
         grid-template-columns: 1fr;
     }
+}
+
+@keyframes spin {
+    to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+.feedback {
+    margin-top: 1rem;
+    padding: 1rem;
+    background-color: var(--background-color);
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
 }
