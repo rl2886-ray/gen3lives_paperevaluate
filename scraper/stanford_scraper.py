@@ -16,7 +16,7 @@ class StanfordScraper(BaseScraper):
     
     def __init__(self, university_data: Dict):
         super().__init__(university_data)
-        self.base_url = "https://exploredegrees.stanford.edu/graduatedegrees/"
+        self.base_url = "https://exploredegrees.stanford.edu/schoolofengineering/"
     
     def is_stem_program(self, program_name: str) -> bool:
         """
@@ -40,7 +40,11 @@ class StanfordScraper(BaseScraper):
         time.sleep(10)
         
         # Get initial page state and inspect structure
-        print('<run_javascript_browser>console.log("Page Title:", document.title); console.log("Body Classes:", document.body.className); const programLinks = Array.from(document.querySelectorAll("a")).filter(a => a.href.includes("/schoolofengineering/") || a.href.includes("/schoolofsciences/") || a.href.includes("ms-") || a.href.includes("master-of-science")); console.log("Potential Program Links:", programLinks.length); programLinks.forEach(a => console.log("Program Link:", a.href, "Text:", a.textContent.trim())); document.documentElement.innerHTML;</run_javascript_browser>')
+        print('<view_browser reload_window="False" />')
+        print('<screenshot_browser>\nAnalyzing initial page structure\n</screenshot_browser>')
+        
+        # Try to find any content
+        print('<run_javascript_browser>console.log("Document Ready State:", document.readyState); console.log("Page Title:", document.title); console.log("Body Content Length:", document.body.textContent.length); console.log("All Links:", Array.from(document.getElementsByTagName("a")).length); console.log("Page Content Sample:", document.body.textContent.substring(0, 500)); document.documentElement.outerHTML;</run_javascript_browser>')
         
         print('<get_browser_console/>')
         
@@ -55,13 +59,15 @@ class StanfordScraper(BaseScraper):
         print('<screenshot_browser>\nAnalyzing page structure after JavaScript inspection\n</screenshot_browser>')
         
         programs = []
-        # Try multiple selectors for program elements
+        # Try multiple selectors for program elements on the public degree page
         selectors = [
-            ('div', {'class': 'program-card'}),
-            ('div', {'class': 'degree-program'}),
-            ('div', {'role': 'listitem'}),
-            ('div', {'class': 'program'}),
-            ('tr', {'class': 'program-row'})
+            ('div', {'class': 'departmentdegree'}),
+            ('div', {'class': 'department'}),
+            ('div', {'class': 'degree'}),
+            ('div', {'class': 'school'}),
+            ('a', {'href': lambda x: x and ('schoolofengineering' in x or 'schoolofsciences' in x)}),
+            ('h2', {}),  # Department headers
+            ('h3', {})   # Program headers
         ]
         
         program_elements = []
@@ -75,8 +81,18 @@ class StanfordScraper(BaseScraper):
         
         if not program_elements:
             self.logger.warning("No program cards found, trying alternative selectors")
-            # Try finding buttons directly
-            program_elements = soup.find_all('button')
+            # Try finding links and headers that might contain program information
+            program_elements = []
+            # Look for links containing program-related text
+            links = soup.find_all('a', href=True)
+            for link in links:
+                if any(keyword.lower() in link.text.lower() for keyword in self.STEM_KEYWORDS):
+                    program_elements.append(link)
+            # Look for headers that might contain program names
+            headers = soup.find_all(['h2', 'h3', 'h4'])
+            for header in headers:
+                if any(keyword.lower() in header.text.lower() for keyword in self.STEM_KEYWORDS):
+                    program_elements.append(header)
         
         for element in program_elements:
             # Try to find program name in different possible locations
