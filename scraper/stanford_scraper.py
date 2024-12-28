@@ -31,10 +31,20 @@ class StanfordScraper(BaseScraper):
         """
         return any(keyword.lower() in program_name.lower() for keyword in self.STEM_KEYWORDS)
     
-    def find_program_urls(self) -> List[Dict]:
+    def find_program_urls(self, max_retries: int = 3, timeout: int = 15) -> List[Dict]:
         """
         Find URLs and basic info for STEM programs at Stanford
-        Returns a list of dictionaries containing program URLs and basic information
+        
+        Args:
+            max_retries: Maximum number of attempts to load the page
+            timeout: Maximum time in seconds to wait for page elements
+            
+        Returns:
+            List[Dict]: List of dictionaries containing program URLs and basic information
+            
+        Raises:
+            TimeoutError: If page fails to load within specified timeout
+            RuntimeError: If required elements are not found
         """
         import time
         from datetime import datetime
