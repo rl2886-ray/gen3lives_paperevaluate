@@ -2,6 +2,7 @@
 Test script for Stanford scraper
 """
 import logging
+import time
 from scraper.stanford_scraper import StanfordScraper
 
 def test_stanford_scraper():
@@ -18,12 +19,15 @@ def test_stanford_scraper():
     
     # Navigate to programs page
     print("Navigating to Stanford programs page...")
-    command = '<navigate_browser url="https://applygrad.stanford.edu/portal/programs"/>'
-    print(command)
+    print(f'<navigate_browser url="{scraper.base_url}"/>')
+    
+    # Wait for page to load
+    print("Waiting for page to load...")
+    time.sleep(5)
     
     # Test program URL finding
     print("\nTesting program URL finding...")
-    programs = scraper.find_program_urls("https://applygrad.stanford.edu/portal/programs")
+    programs = scraper.find_program_urls(scraper.base_url)
     print(f"\nFound {len(programs)} STEM programs:")
     
     # Display found programs

@@ -57,8 +57,6 @@ class MITScraper(BaseScraper):
                         self.logger.info(f"Found STEM program: {program_name}")
         
         return programs
-        
-        return program_urls
     
     def extract_program_info(self, url: str) -> Optional[Dict]:
         """Extract program information from MIT program page"""
@@ -73,9 +71,27 @@ class MITScraper(BaseScraper):
             'degree_type': None,
             'duration': None,
             'credits_required': None,
-            'admission_requirements': {},
-            'financial_info': {},
-            'program_features': {},
+            'admission_requirements': {
+                'required_documents': [],
+                'standardized_tests': [],
+                'english_proficiency': None,
+                'minimum_gpa': None,
+                'application_deadline': None,
+                'application_fee': None
+            },
+            'financial_info': {
+                'tuition_per_credit': None,
+                'estimated_total_cost': None,
+                'financial_aid_available': False,
+                'assistantship_available': False
+            },
+            'program_features': {
+                'specializations': [],
+                'research_areas': [],
+                'faculty_count': None,
+                'student_faculty_ratio': None,
+                'internship_opportunities': False
+            },
             'courses': {
                 'core_courses': [],
                 'elective_courses': [],
@@ -88,29 +104,63 @@ class MITScraper(BaseScraper):
             title_elem = soup.find('h1')
             if title_elem:
                 program_info['degree_name'] = title_elem.text.strip()
+                program_info['department'] = title_elem.text.strip()  # Use program name as department for now
             
-            # Department information
-            dept_elem = soup.find('div', {'class': 'department-name'})
-            if dept_elem:
-                program_info['department'] = dept_elem.text.strip()
+            # Extract application info
+            app_fee = soup.find(string=lambda x: x and 'Fee:' in x)
+            if app_fee:
+                program_info['admission_requirements']['application_fee'] = app_fee.find_next(string=True).strip()
             
-            # Admission requirements
-            admissions_section = soup.find('div', string=lambda text: text and 'Admission Requirements' in text)
-            if admissions_section:
-                requirements_list = admissions_section.find_next('ul')
-                if requirements_list:
-                    program_info['admission_requirements'] = {
-                        'requirements_list': [li.text.strip() for li in requirements_list.find_all('li')]
-                    }
+            deadline = soup.find(string=lambda x: x and 'Deadline:' in x)
+            if deadline:
+                program_info['admission_requirements']['application_deadline'] = deadline.find_next(string=True).strip()
             
-            # Course information
-            courses_section = soup.find('div', string=lambda text: text and 'Curriculum' in text)
-            if courses_section:
-                course_lists = courses_section.find_all('ul')
-                for course_list in course_lists:
-                    courses = [li.text.strip() for li in course_list.find_all('li')]
-                    if courses:
-                        program_info['courses']['core_courses'].extend(courses)
+            # Find all expandable sections
+            buttons = soup.find_all('button')
+            for button in buttons:
+                section_title = button.text.strip()
+                section_content = button.find_next(string=True)
+                
+                if section_content:
+                    # Degrees section
+                    if 'Degrees' in section_title:
+                        degrees = [d.strip() for d in section_content.split('*') if d.strip()]
+                        if degrees:
+                            program_info['degree_type'] = degrees[0]
+                    
+                    # Standardized Tests section
+                    elif 'Standardized Tests' in section_title:
+                        program_info['admission_requirements']['standardized_tests'] = [
+                            test.strip() for test in section_content.split('\n') if test.strip()
+                        ]
+                    
+                    # Areas of Research section
+                    elif 'Areas of Research' in section_title:
+                        program_info['program_features']['research_areas'] = [
+                            area.strip() for area in section_content.split('\n') if area.strip()
+                        ]
+                    
+                    # Financial Support section
+                    elif 'Financial Support' in section_title:
+                        program_info['financial_info']['financial_aid_available'] = True
+                        if 'assistantship' in section_content.lower():
+                            program_info['financial_info']['assistantship_available'] = True
+                    
+                    # Application Requirements section
+                    elif 'Application Requirements' in section_title:
+                        requirements_list = button.find_next('ul')
+                        if requirements_list:
+                            program_info['admission_requirements']['required_documents'] = [
+                                req.text.strip() for req in requirements_list.find_all('li')
+                            ]
+                            # Check for English proficiency requirement
+                            for req in program_info['admission_requirements']['required_documents']:
+                                if 'english proficiency' in req.lower():
+                                    program_info['admission_requirements']['english_proficiency'] = req
+            
+            # Generate program_id
+            if program_info['degree_name']:
+                program_info['program_id'] = f"mit_{program_info['degree_name'].lower().replace(' ', '_')}"
             
         except Exception as e:
             self.logger.error(f"Error extracting program info from {url}: {str(e)}")

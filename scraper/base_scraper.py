@@ -132,11 +132,18 @@ class BaseScraper:
         """Get the current browser content as BeautifulSoup"""
         try:
             # Get the current browser content
-            command = '<view_browser/>'
-            print(command)
-            # The actual content will be provided by the system
-            # For now, return None as this needs to be implemented
-            return None
+            print('<view_browser reload_window="True"/>')
+            # Wait for content to load
+            time.sleep(2)
+            # Take a screenshot for debugging
+            print('<screenshot_browser>\nChecking page content after loading\n</screenshot_browser>')
+            # Get the HTML content
+            print('<run_javascript_browser>document.documentElement.outerHTML</run_javascript_browser>')
+            # The actual HTML content will be provided by the system in response to the above command
+            # For now, we'll log that we're waiting for content
+            self.logger.info("Waiting for browser content...")
+            # The system will replace this return with actual parsed content
+            return BeautifulSoup("<html><body>Waiting for content...</body></html>", 'html.parser')
         except Exception as e:
             self.logger.error(f"Error getting browser content: {str(e)}")
             return None

@@ -16,7 +16,7 @@ class StanfordScraper(BaseScraper):
     
     def __init__(self, university_data: Dict):
         super().__init__(university_data)
-        self.base_url = "https://applygrad.stanford.edu/portal/programs"
+        self.base_url = "https://exploredegrees.stanford.edu/graduatedegrees/"
     
     def is_stem_program(self, program_name: str) -> bool:
         """
@@ -34,14 +34,44 @@ class StanfordScraper(BaseScraper):
         time.sleep(5)  # Wait for dynamic content to load
         
         # Get page content using browser
+        self.logger.info("Attempting to load Stanford programs page...")
+        
+        # Wait longer for initial page load
+        time.sleep(10)
+        
+        # Get initial page state and inspect structure
+        print('<run_javascript_browser>console.log("Page Title:", document.title); console.log("Body Classes:", document.body.className); const programLinks = Array.from(document.querySelectorAll("a")).filter(a => a.href.includes("/schoolofengineering/") || a.href.includes("/schoolofsciences/") || a.href.includes("ms-") || a.href.includes("master-of-science")); console.log("Potential Program Links:", programLinks.length); programLinks.forEach(a => console.log("Program Link:", a.href, "Text:", a.textContent.trim())); document.documentElement.innerHTML;</run_javascript_browser>')
+        
+        print('<get_browser_console/>')
+        
+        # Get page content
         soup = self.get_browser_content()
         if not soup:
-            self.logger.error("Failed to get browser content")
+            self.logger.error("Failed to get initial browser content")
             return []
+            
+        # Log page analysis
+        self.logger.info("Page loaded. Analyzing structure...")
+        print('<screenshot_browser>\nAnalyzing page structure after JavaScript inspection\n</screenshot_browser>')
         
         programs = []
-        # Find all program elements
-        program_elements = soup.find_all('div', {'class': 'program-card'})
+        # Try multiple selectors for program elements
+        selectors = [
+            ('div', {'class': 'program-card'}),
+            ('div', {'class': 'degree-program'}),
+            ('div', {'role': 'listitem'}),
+            ('div', {'class': 'program'}),
+            ('tr', {'class': 'program-row'})
+        ]
+        
+        program_elements = []
+        for tag, attrs in selectors:
+            self.logger.info(f"Trying selector: {tag} with attributes {attrs}")
+            elements = soup.find_all(tag, attrs)
+            if elements:
+                self.logger.info(f"Found {len(elements)} elements with selector {tag}, {attrs}")
+                program_elements.extend(elements)
+                break
         
         if not program_elements:
             self.logger.warning("No program cards found, trying alternative selectors")
