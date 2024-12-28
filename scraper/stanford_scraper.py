@@ -49,8 +49,8 @@ class StanfordScraper(BaseScraper):
         import time
         from datetime import datetime
         
-        MAX_RETRIES = 3
-        LOAD_TIMEOUT = 15
+        MAX_RETRIES = 5
+        LOAD_TIMEOUT = 30  # Increased timeout for better reliability
         
         self.logger.info(f"[{datetime.now()}] Loading Stanford programs portal...")
         
@@ -125,7 +125,10 @@ class StanfordScraper(BaseScraper):
                     
                     const isLoaded = state.readyState === 'complete' && 
                                    state.filters.all.length > 0 && 
-                                   state.buttons.all.length > 0;
+                                   state.buttons.all.length > 0 &&
+                                   state.filters.engineering &&
+                                   state.filters.ms &&
+                                   state.buttons.expand;
                     
                     if (isLoaded) {
                         console.log("PAGE_LOAD_COMPLETE");
@@ -174,7 +177,21 @@ class StanfordScraper(BaseScraper):
                     
                     if attempt < LOAD_TIMEOUT - 1:
                         self.logger.info(f"[{datetime.now()}] Page not ready, waiting...")
-                        time.sleep(2)  # Increased wait time between checks
+                        time.sleep(3)  # Further increased wait time between checks
+                        # Log detailed page state for debugging
+                        print('''<run_javascript_browser>
+                        console.log("=== Detailed Page State ===");
+                        console.log(JSON.stringify({
+                            readyState: document.readyState,
+                            bodyLength: document.body.textContent.length,
+                            filterCount: document.querySelectorAll('input[type="checkbox"]').length,
+                            buttonCount: document.querySelectorAll('button').length,
+                            hasEngFilter: Boolean(state.filters.engineering),
+                            hasMsFilter: Boolean(state.filters.ms),
+                            hasExpandButton: Boolean(state.buttons.expand)
+                        }, null, 2));
+                        </run_javascript_browser>''')
+                        print('<get_browser_console/>')
                 else:
                     self.logger.error(f"[{datetime.now()}] Page failed to load properly")
                     print('''<screenshot_browser>
