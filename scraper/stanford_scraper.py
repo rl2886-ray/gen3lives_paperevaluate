@@ -29,32 +29,75 @@ class StanfordScraper(BaseScraper):
         Find URLs and basic info for STEM programs at Stanford
         Returns a list of dictionaries containing program URLs and basic information
         """
-        soup = self.make_request(base_url)
+        # Wait for page to load
+        import time
+        time.sleep(5)  # Wait for dynamic content to load
+        
+        # Get page content using browser
+        soup = self.get_browser_content()
         if not soup:
+            self.logger.error("Failed to get browser content")
             return []
         
         programs = []
-        # Find program buttons
-        program_buttons = soup.find_all('button', {'type': 'button'})
+        # Find all program elements
+        program_elements = soup.find_all('div', {'class': 'program-card'})
         
-        for button in program_buttons:
-            # Get program name from h2 inside button
-            h2_elem = button.find('h2')
-            if not h2_elem:
-                continue
+        if not program_elements:
+            self.logger.warning("No program cards found, trying alternative selectors")
+            # Try finding buttons directly
+            program_elements = soup.find_all('button')
+        
+        for element in program_elements:
+            # Try to find program name in different possible locations
+            program_name = None
+            
+            # Try h2 first
+            h2_elem = element.find('h2')
+            if h2_elem:
+                program_name = h2_elem.text.strip()
+            
+            # If no h2, try h3
+            if not program_name:
+                h3_elem = element.find('h3')
+                if h3_elem:
+                    program_name = h3_elem.text.strip()
+            
+            # If still no name, try direct text
+            if not program_name:
+                program_name = element.text.strip()
+            
+            if program_name:
+                # Log all found programs for debugging
+                self.logger.info(f"Found program: {program_name}")
                 
-            program_name = h2_elem.text.strip()
-            # Only include MS programs and check if it's a STEM program
-            if '(MS)' in program_name and self.is_stem_program(program_name):
-                # Get program details
-                program_info = {
-                    'name': program_name,
-                    'url': base_url,  # Same page, we'll use button clicks
-                    'deadline': None,  # Will be extracted after clicking
-                    'button_id': button.get('devinid')  # Store button ID for clicking
-                }
-                programs.append(program_info)
-                self.logger.info(f"Found STEM program: {program_name}")
+                # Only include MS programs and check if it's a STEM program
+                if ('MS' in program_name or 'Master of Science' in program_name) and self.is_stem_program(program_name):
+                    # Get button ID - try different approaches
+                    button_id = None
+                    if element.name == 'button':
+                        button_id = element.get('devinid')
+                    else:
+                        # Try to find a button within the element
+                        button = element.find('button')
+                        if button:
+                            button_id = button.get('devinid')
+                    
+                    if button_id:
+                        program_info = {
+                            'name': program_name,
+                            'url': base_url,  # Same page, we'll use button clicks
+                            'button_id': button_id
+                        }
+                        programs.append(program_info)
+                        self.logger.info(f"Found STEM program: {program_name} with button ID: {button_id}")
+                    else:
+                        self.logger.warning(f"Found STEM program but no button ID: {program_name}")
+        
+        if not programs:
+            self.logger.warning("No STEM programs found. This might indicate a problem with the page structure or loading.")
+            # Take a screenshot for debugging
+            print('<screenshot_browser>\nChecking page structure for program elements\n</screenshot_browser>')
         
         return programs
     
