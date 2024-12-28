@@ -2,7 +2,9 @@
 Base scraper for university STEM programs
 """
 import time
+import json
 import logging
+import re
 from typing import Dict, List, Optional
 import requests
 from bs4 import BeautifulSoup
@@ -149,13 +151,31 @@ class BaseScraper:
             return None
             
     def get_browser_console(self) -> str:
-        """Get the browser console output"""
-        try:
-            print('<get_browser_console/>')
-            return "Console output will be provided by the system"
-        except Exception as e:
-            self.logger.error(f"Error getting browser console: {str(e)}")
-            return ""
+        """Get the browser console output with retries"""
+        max_retries = 3
+        retry_delay = 2
+        
+        for attempt in range(max_retries):
+            try:
+                print('<get_browser_console/>')
+                # Wait briefly for output to be captured
+                time.sleep(retry_delay)
+                # The system will replace this with actual console output
+                console_output = self.run_javascript("console.log('Checking console output capture')")
+                
+                if console_output and console_output != "Result will be provided by the system":
+                    self.logger.debug(f"Got console output on attempt {attempt + 1}")
+                    return console_output
+                    
+                self.logger.warning(f"No console output on attempt {attempt + 1}, retrying...")
+                
+            except Exception as e:
+                self.logger.error(f"Error getting browser console (attempt {attempt + 1}): {str(e)}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    
+        self.logger.error("Failed to get console output after all retries")
+        return ""
             
     def run_javascript(self, script: str) -> str:
         """
@@ -179,3 +199,54 @@ class BaseScraper:
         """Wait for the browser with logging"""
         self.logger.info(f"Waiting for {seconds} seconds...")
         print(f'<wait for="browser" seconds="{seconds}"/>')
+        
+    def parse_console_json(self, console_output: str, start_marker: str = None, end_marker: str = None) -> List[Dict]:
+        """
+        Parse JSON data from browser console output with optional markers
+        
+        Args:
+            console_output: Raw console output string
+            start_marker: Optional marker indicating start of JSON data
+            end_marker: Optional marker indicating end of JSON data
+            
+        Returns:
+            List of dictionaries parsed from JSON in console output
+        """
+        try:
+            if not console_output:
+                self.logger.warning("Empty console output")
+                return []
+                
+            # If markers are provided, extract content between them
+            if start_marker and end_marker:
+                start_idx = console_output.find(start_marker)
+                end_idx = console_output.find(end_marker)
+                
+                if start_idx != -1 and end_idx != -1:
+                    json_text = console_output[start_idx + len(start_marker):end_idx].strip()
+                    try:
+                        data = json.loads(json_text)
+                        return data if isinstance(data, list) else [data]
+                    except json.JSONDecodeError as e:
+                        self.logger.error(f"Failed to parse marked JSON: {e}")
+                        self.logger.debug(f"JSON text: {json_text}")
+                        
+            # Fall back to finding any JSON-like strings
+            json_matches = re.findall(r'\{[^{}]*\}|\[[^\[\]]*\]', console_output)
+            
+            for match in json_matches:
+                try:
+                    data = json.loads(match)
+                    if isinstance(data, (list, dict)):
+                        return data if isinstance(data, list) else [data]
+                except json.JSONDecodeError:
+                    continue
+                    
+            self.logger.warning("No valid JSON found in console output")
+            self.logger.debug(f"Console output: {repr(console_output)}")
+            return []
+            
+        except Exception as e:
+            self.logger.error(f"Error parsing console JSON: {str(e)}")
+            self.logger.debug(f"Console output: {repr(console_output)}")
+            return []
