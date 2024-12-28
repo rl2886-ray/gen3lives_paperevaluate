@@ -113,3 +113,30 @@ class BaseScraper:
         df = pd.DataFrame(programs)
         df.to_csv(output_file, index=False)
         self.logger.info(f"Saved {len(programs)} programs to {output_file}")
+        
+    def click_browser(self, selector: str) -> None:
+        """Click an element in the browser using devinid"""
+        try:
+            if selector.startswith('devinid='):
+                self.logger.info(f"Clicking element with {selector}")
+                command = f'<click_browser box="{selector.split("=")[1]}"/>'
+                # Execute the command (this is a placeholder - the actual execution
+                # will be handled by the system)
+                print(command)
+            else:
+                self.logger.error(f"Invalid selector format: {selector}")
+        except Exception as e:
+            self.logger.error(f"Error clicking browser element: {str(e)}")
+            
+    def get_browser_content(self) -> Optional[BeautifulSoup]:
+        """Get the current browser content as BeautifulSoup"""
+        try:
+            # Get the current browser content
+            command = '<view_browser/>'
+            print(command)
+            # The actual content will be provided by the system
+            # For now, return None as this needs to be implemented
+            return None
+        except Exception as e:
+            self.logger.error(f"Error getting browser content: {str(e)}")
+            return None
