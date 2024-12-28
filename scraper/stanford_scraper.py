@@ -53,48 +53,143 @@ class StanfordScraper(BaseScraper):
         
         # Navigate to the programs portal
         print(f'<navigate_browser url="{self.base_url}"/>')
-        time.sleep(3)  # Wait for initial page load
+        time.sleep(5)  # Increased wait for initial page load
+        
+        # Take screenshot to verify initial page state
+        print('''<screenshot_browser>
+        Verifying initial page state before applying filters.
+        Looking for:
+        1. Filter checkboxes
+        2. Program listings
+        3. Overall page structure
+        </screenshot_browser>''')
+        
+        # Debug page state
+        print('''<run_javascript_browser>
+        try {
+            const pageState = {
+                filters: Array.from(document.querySelectorAll('input[type="checkbox"]')).map(f => ({
+                    id: f.getAttribute('devinid'),
+                    label: f.parentElement?.textContent?.trim(),
+                    checked: f.checked
+                })),
+                buttons: Array.from(document.querySelectorAll('button')).map(b => ({
+                    id: b.getAttribute('devinid'),
+                    text: b.textContent?.trim(),
+                    expanded: b.getAttribute('aria-expanded')
+                }))
+            };
+            console.log(JSON.stringify({type: "initial_state", data: pageState}));
+        } catch (error) {
+            console.log(JSON.stringify({type: "error", message: error.message}));
+        }
+        </run_javascript_browser>''')
+        console_output = self.get_browser_console()
+        
+        try:
+            state_data = json.loads(console_output)
+            if state_data.get('type') == 'error':
+                self.logger.error(f"Error getting initial state: {state_data.get('message')}")
+            else:
+                self.logger.info(f"Found {len(state_data.get('data', {}).get('filters', []))} filters and {len(state_data.get('data', {}).get('buttons', []))} buttons")
+        except json.JSONDecodeError:
+            self.logger.error(f"Failed to parse console output: {console_output}")
         
         # Click School of Engineering filter (devinid="49")
         self.logger.info("Clicking School of Engineering filter")
         print('<click_browser box="49"/>')
-        time.sleep(2)
+        time.sleep(3)
+        
+        # Verify Engineering filter applied
+        print('''<screenshot_browser>
+        Verifying Engineering filter applied.
+        Checking if program list has updated.
+        </screenshot_browser>''')
         
         # Click MS degree filter (devinid="57")
         self.logger.info("Clicking MS degree filter")
         print('<click_browser box="57"/>')
-        time.sleep(2)
+        time.sleep(3)
+        
+        # Verify MS filter applied
+        print('''<screenshot_browser>
+        Verifying MS filter applied.
+        Checking if program list shows only MS programs.
+        </screenshot_browser>''')
         
         # Click expand all button (devinid="68")
         self.logger.info("Clicking expand all button")
         print('<click_browser box="68"/>')
-        time.sleep(2)
+        time.sleep(5)  # Increased wait for expansion
+        
+        # Debug expanded state
+        print('''<run_javascript_browser>
+        try {
+            const expandedState = {
+                totalButtons: document.querySelectorAll('button').length,
+                expandedButtons: document.querySelectorAll('button[aria-expanded="true"]').length,
+                visibleH2s: document.querySelectorAll('h2').length
+            };
+            console.log(JSON.stringify({type: "expanded_state", data: expandedState}));
+        } catch (error) {
+            console.log(JSON.stringify({type: "error", message: error.message}));
+        }
+        </run_javascript_browser>''')
+        console_output = self.get_browser_console()
+        
+        try:
+            state_data = json.loads(console_output)
+            if state_data.get('type') == 'error':
+                self.logger.error(f"Error getting expanded state: {state_data.get('message')}")
+            else:
+                self.logger.info(f"Found {state_data.get('data', {}).get('totalButtons', 0)} total buttons, {state_data.get('data', {}).get('expandedButtons', 0)} expanded")
+        except json.JSONDecodeError:
+            self.logger.error(f"Failed to parse console output: {console_output}")
         
         # Extract program information using JavaScript
         self.logger.info("Extracting program information")
         print('''<run_javascript_browser>
-        const programs = Array.from(document.querySelectorAll('button')).map(button => {
-            const h2 = button.querySelector('h2');
-            if (!h2) return null;
+        try {
+            // Debug all buttons first
+            const allButtons = Array.from(document.querySelectorAll('button'));
+            const buttonInfo = allButtons.map(b => ({
+                id: b.getAttribute('devinid'),
+                text: b.textContent?.trim(),
+                expanded: b.getAttribute('aria-expanded'),
+                hasH2: Boolean(b.querySelector('h2'))
+            }));
+            console.log(JSON.stringify({type: "button_info", data: buttonInfo}));
             
-            const title = h2.textContent.trim();
-            const section = button.parentElement;
-            const school = section.querySelector('a[href*=engineering\\.stanford\\.edu]')?.textContent?.trim();
-            const programUrl = section.querySelector('a[aria-label*=Program\\ Website]')?.href;
-            const bulletinUrl = section.querySelector('a[href*=bulletin\\.stanford\\.edu]')?.href;
-            const email = section.querySelector('a[href^=mailto]')?.textContent?.trim();
+            const programs = allButtons.map(button => {
+                try {
+                    const h2 = button.querySelector('h2');
+                    if (!h2) return null;
+                    
+                    const title = h2.textContent.trim();
+                    const section = button.parentElement;
+                    const school = section.querySelector('a[href*=engineering\\.stanford\\.edu]')?.textContent?.trim();
+                    const programUrl = section.querySelector('a[aria-label*=Program\\ Website]')?.href;
+                    const bulletinUrl = section.querySelector('a[href*=bulletin\\.stanford\\.edu]')?.href;
+                    const email = section.querySelector('a[href^=mailto]')?.textContent?.trim();
             
-            return {
-                title,
-                school,
-                programUrl,
-                bulletinUrl,
-                email,
-                buttonId: button.getAttribute('devinid')
-            };
-        }).filter(p => p !== null && p.title && p.title.includes('(MS)'));
-        
-        console.log(JSON.stringify(programs, null, 2));
+                    return {
+                        title,
+                        school,
+                        programUrl,
+                        bulletinUrl,
+                        email,
+                        buttonId: button.getAttribute('devinid')
+                    };
+                } catch (error) {
+                    console.log(JSON.stringify({type: "error", message: `Error processing button ${button.getAttribute('devinid')}: ${error.message}`}));
+                    return null;
+                }
+            }).filter(p => p !== null && p.title && p.title.includes('(MS)'));
+            
+            console.log(JSON.stringify({type: "programs", data: programs}));
+        } catch (error) {
+            console.log(JSON.stringify({type: "error", message: error.message}));
+        }
         </run_javascript_browser>''')
         
         print('<get_browser_console/>')
@@ -102,7 +197,17 @@ class StanfordScraper(BaseScraper):
         
         try:
             # Parse program data from console output
-            programs = json.loads(console_output)
+            result = json.loads(console_output)
+            
+            if result.get('type') == 'error':
+                self.logger.error(f"Error extracting programs: {result.get('message')}")
+                return []
+                
+            if result.get('type') != 'programs':
+                self.logger.error(f"Unexpected result type: {result.get('type')}")
+                return []
+            
+            programs = result.get('data', [])
             
             # Filter for STEM programs
             stem_programs = []
@@ -113,11 +218,17 @@ class StanfordScraper(BaseScraper):
             
             if not stem_programs:
                 self.logger.warning("No STEM programs found")
+            else: 
+                self.logger.info(f"Found {len(stem_programs)} STEM programs")
             
             return stem_programs
             
-        except Exception as e:
+        except json.JSONDecodeError as e:
             self.logger.error(f"Error parsing program data: {str(e)}")
+            self.logger.error(f"Raw console output: {console_output}")
+            return []
+        except Exception as e:
+            self.logger.error(f"Unexpected error: {str(e)}")
             return []
         
         # Apply MS filter
