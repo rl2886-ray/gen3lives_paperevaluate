@@ -65,35 +65,43 @@ class StanfordScraper(BaseScraper):
         </screenshot_browser>''')
         
         # Debug page state
-        print('''<run_javascript_browser>
-        try {
-            const pageState = {
-                filters: Array.from(document.querySelectorAll('input[type="checkbox"]')).map(f => ({
-                    id: f.getAttribute('devinid'),
-                    label: f.parentElement?.textContent?.trim(),
-                    checked: f.checked
-                })),
-                buttons: Array.from(document.querySelectorAll('button')).map(b => ({
-                    id: b.getAttribute('devinid'),
-                    text: b.textContent?.trim(),
-                    expanded: b.getAttribute('aria-expanded')
-                }))
-            };
-            console.log(JSON.stringify({type: "initial_state", data: pageState}));
-        } catch (error) {
-            console.log(JSON.stringify({type: "error", message: error.message}));
-        }
-        </run_javascript_browser>''')
-        console_output = self.get_browser_console()
+        js_result = self.run_javascript('''
+        const pageState = {
+            filters: Array.from(document.querySelectorAll('input[type="checkbox"]')).map(f => ({
+                id: f.getAttribute('devinid'),
+                label: f.parentElement?.textContent?.trim(),
+                checked: f.checked
+            })),
+            buttons: Array.from(document.querySelectorAll('button')).map(b => ({
+                id: b.getAttribute('devinid'),
+                text: b.textContent?.trim(),
+                expanded: b.getAttribute('aria-expanded')
+            }))
+        };
+        return JSON.stringify(pageState);
+        ''')
         
         try:
-            state_data = json.loads(console_output)
-            if state_data.get('type') == 'error':
-                self.logger.error(f"Error getting initial state: {state_data.get('message')}")
-            else:
-                self.logger.info(f"Found {len(state_data.get('data', {}).get('filters', []))} filters and {len(state_data.get('data', {}).get('buttons', []))} buttons")
-        except json.JSONDecodeError:
-            self.logger.error(f"Failed to parse console output: {console_output}")
+            state_data = json.loads(js_result)
+            self.logger.info(f"Found {len(state_data.get('filters', []))} filters and {len(state_data.get('buttons', []))} buttons")
+            
+            # Log filter details for debugging
+            for f in state_data.get('filters', []):
+                self.logger.debug(f"Filter: {f.get('label')} (id={f.get('id')}, checked={f.get('checked')})")
+                
+            # Log button details for debugging
+            for b in state_data.get('buttons', []):
+                self.logger.debug(f"Button: {b.get('text')} (id={b.get('id')}, expanded={b.get('expanded')})")
+                
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Failed to parse page state: {e}")
+            self.logger.debug(f"Raw JavaScript result: {js_result}")
+            
+        # Take a screenshot to verify page state
+        print('''<screenshot_browser>
+        Checking page state after initial load.
+        Looking for filter checkboxes and buttons.
+        </screenshot_browser>''')
         
         # Click School of Engineering filter (devinid="49")
         self.logger.info("Clicking School of Engineering filter")
@@ -123,74 +131,83 @@ class StanfordScraper(BaseScraper):
         time.sleep(5)  # Increased wait for expansion
         
         # Debug expanded state
-        print('''<run_javascript_browser>
-        try {
-            const expandedState = {
-                totalButtons: document.querySelectorAll('button').length,
-                expandedButtons: document.querySelectorAll('button[aria-expanded="true"]').length,
-                visibleH2s: document.querySelectorAll('h2').length
-            };
-            console.log(JSON.stringify({type: "expanded_state", data: expandedState}));
-        } catch (error) {
-            console.log(JSON.stringify({type: "error", message: error.message}));
-        }
-        </run_javascript_browser>''')
-        console_output = self.get_browser_console()
+        js_result = self.run_javascript('''
+        const expandedState = {
+            totalButtons: document.querySelectorAll('button').length,
+            expandedButtons: document.querySelectorAll('button[aria-expanded="true"]').length,
+            visibleH2s: document.querySelectorAll('h2').length,
+            programButtons: Array.from(document.querySelectorAll('button')).filter(b => b.querySelector('h2')).length
+        };
+        return JSON.stringify(expandedState);
+        ''')
         
         try:
-            state_data = json.loads(console_output)
-            if state_data.get('type') == 'error':
-                self.logger.error(f"Error getting expanded state: {state_data.get('message')}")
-            else:
-                self.logger.info(f"Found {state_data.get('data', {}).get('totalButtons', 0)} total buttons, {state_data.get('data', {}).get('expandedButtons', 0)} expanded")
-        except json.JSONDecodeError:
-            self.logger.error(f"Failed to parse console output: {console_output}")
+            state_data = json.loads(js_result)
+            self.logger.info(
+                f"Found {state_data.get('totalButtons', 0)} total buttons, "
+                f"{state_data.get('expandedButtons', 0)} expanded, "
+                f"{state_data.get('programButtons', 0)} program buttons"
+            )
+            
+            if state_data.get('programButtons', 0) == 0:
+                self.logger.warning("No program buttons found after expansion")
+                
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Failed to parse expanded state: {e}")
+            self.logger.debug(f"Raw JavaScript result: {js_result}")
+            
+        # Take a screenshot to verify expanded state
+        print('''<screenshot_browser>
+        Checking expanded state after clicking expand all.
+        Looking for expanded program buttons.
+        </screenshot_browser>''')
         
         # Extract program information using JavaScript
         self.logger.info("Extracting program information")
-        print('''<run_javascript_browser>
-        try {
-            // Debug all buttons first
-            const allButtons = Array.from(document.querySelectorAll('button'));
-            const buttonInfo = allButtons.map(b => ({
-                id: b.getAttribute('devinid'),
-                text: b.textContent?.trim(),
-                expanded: b.getAttribute('aria-expanded'),
-                hasH2: Boolean(b.querySelector('h2'))
-            }));
-            console.log(JSON.stringify({type: "button_info", data: buttonInfo}));
+        js_result = self.run_javascript('''
+        const programs = Array.from(document.querySelectorAll('button')).map(button => {
+            const h2 = button.querySelector('h2');
+            if (!h2) return null;
             
-            const programs = allButtons.map(button => {
-                try {
-                    const h2 = button.querySelector('h2');
-                    if (!h2) return null;
-                    
-                    const title = h2.textContent.trim();
-                    const section = button.parentElement;
-                    const school = section.querySelector('a[href*=engineering\\.stanford\\.edu]')?.textContent?.trim();
-                    const programUrl = section.querySelector('a[aria-label*=Program\\ Website]')?.href;
-                    const bulletinUrl = section.querySelector('a[href*=bulletin\\.stanford\\.edu]')?.href;
-                    const email = section.querySelector('a[href^=mailto]')?.textContent?.trim();
+            const title = h2.textContent.trim();
+            if (!title.includes('(MS)')) return null;
             
-                    return {
-                        title,
-                        school,
-                        programUrl,
-                        bulletinUrl,
-                        email,
-                        buttonId: button.getAttribute('devinid')
-                    };
-                } catch (error) {
-                    console.log(JSON.stringify({type: "error", message: `Error processing button ${button.getAttribute('devinid')}: ${error.message}`}));
-                    return null;
-                }
-            }).filter(p => p !== null && p.title && p.title.includes('(MS)'));
+            const section = button.parentElement;
+            return {
+                title,
+                school: section.querySelector('a[href*="engineering.stanford.edu"]')?.textContent?.trim(),
+                programUrl: section.querySelector('a[aria-label*="Program Website"]')?.href,
+                bulletinUrl: section.querySelector('a[href*="bulletin.stanford.edu"]')?.href,
+                email: section.querySelector('a[href^="mailto"]')?.textContent?.trim(),
+                buttonId: button.getAttribute('devinid')
+            };
+        }).filter(p => p !== null);
+        return JSON.stringify(programs);
+        ''')
+        
+        try:
+            programs = json.loads(js_result)
+            if not programs:
+                self.logger.warning("No MS programs found")
+                return []
+                
+            self.logger.info(f"Found {len(programs)} MS programs")
+            for program in programs:
+                self.logger.info(f"Found program: {program.get('title', 'Unknown')}")
+                self.logger.debug(f"Program details: {json.dumps(program, indent=2)}")
+                
+            return programs
             
-            console.log(JSON.stringify({type: "programs", data: programs}));
-        } catch (error) {
-            console.log(JSON.stringify({type: "error", message: error.message}));
-        }
-        </run_javascript_browser>''')
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Failed to parse program data: {e}")
+            self.logger.debug(f"Raw JavaScript result: {js_result}")
+            return []
+            
+        # Take a screenshot to verify program extraction
+        print('''<screenshot_browser>
+        Checking program extraction results.
+        Looking for MS program buttons and their details.
+        </screenshot_browser>''')
         
         print('<get_browser_console/>')
         console_output = self.get_browser_console()

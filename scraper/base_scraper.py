@@ -157,14 +157,24 @@ class BaseScraper:
             self.logger.error(f"Error getting browser console: {str(e)}")
             return ""
             
-    def run_javascript(self, script: str) -> None:
-        """Run JavaScript in the browser"""
+    def run_javascript(self, script: str) -> str:
+        """
+        Run JavaScript in the browser and return the result
+        
+        Args:
+            script: JavaScript code to execute
+            
+        Returns:
+            String result from JavaScript execution
+        """
         try:
             self.logger.info("Running JavaScript in browser")
             print(f'<run_javascript_browser>{script}</run_javascript_browser>')
+            # The actual result will be provided by the system
+            return "Result will be provided by the system"
         except Exception as e:
             self.logger.error(f"Error running JavaScript: {str(e)}")
-            
+            return ""
     def wait_for_browser(self, seconds: int) -> None:
         """Wait for the browser with logging"""
         self.logger.info(f"Waiting for {seconds} seconds...")
