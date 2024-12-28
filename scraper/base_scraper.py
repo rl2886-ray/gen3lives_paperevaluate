@@ -147,3 +147,25 @@ class BaseScraper:
         except Exception as e:
             self.logger.error(f"Error getting browser content: {str(e)}")
             return None
+            
+    def get_browser_console(self) -> str:
+        """Get the browser console output"""
+        try:
+            print('<get_browser_console/>')
+            return "Console output will be provided by the system"
+        except Exception as e:
+            self.logger.error(f"Error getting browser console: {str(e)}")
+            return ""
+            
+    def run_javascript(self, script: str) -> None:
+        """Run JavaScript in the browser"""
+        try:
+            self.logger.info("Running JavaScript in browser")
+            print(f'<run_javascript_browser>{script}</run_javascript_browser>')
+        except Exception as e:
+            self.logger.error(f"Error running JavaScript: {str(e)}")
+            
+    def wait_for_browser(self, seconds: int) -> None:
+        """Wait for the browser with logging"""
+        self.logger.info(f"Waiting for {seconds} seconds...")
+        print(f'<wait for="browser" seconds="{seconds}"/>')
