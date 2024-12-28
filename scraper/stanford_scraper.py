@@ -49,190 +49,76 @@ class StanfordScraper(BaseScraper):
         import time
         from datetime import datetime
         
-        MAX_RETRIES = 5
-        LOAD_TIMEOUT = 30  # Increased timeout for better reliability
-        
         self.logger.info(f"[{datetime.now()}] Loading Stanford programs portal...")
         
-        # Navigate to the programs portal with retries
-        for attempt in range(MAX_RETRIES):
-            try:
-                self.logger.info(f"[{datetime.now()}] Attempt {attempt + 1} of {MAX_RETRIES}")
-                print(f'<navigate_browser url="{self.base_url}"/>')
-                
-                # Take a screenshot to verify page state
-                print('''<screenshot_browser>
-                Checking the current state of the Stanford programs portal.
-                Looking for:
-                1. Filter checkboxes
-                2. Program listings
-                3. Overall page structure
-                </screenshot_browser>''')
-                
-                # Wait for initial page load with verification
-                for attempt in range(LOAD_TIMEOUT):
-                    self.logger.info(f"[{datetime.now()}] Page load attempt {attempt + 1}/{LOAD_TIMEOUT}")
-                    
-                    # Check page state and find interactive elements
-                    print('''<run_javascript_browser>
-                    function findFilterByText(text) {
-                        return Array.from(document.querySelectorAll('input[type="checkbox"]')).find(input => {
-                            const label = input.parentElement?.textContent?.trim().toLowerCase();
-                            return label && label.includes(text.toLowerCase());
-                        });
-                    }
-
-                    function findButtonByText(text) {
-                        return Array.from(document.querySelectorAll('button')).find(button => {
-                            const buttonText = button.textContent?.trim().toLowerCase();
-                            return buttonText && buttonText.includes(text.toLowerCase());
-                        });
-                    }
-
-                    const state = {
-                        readyState: document.readyState,
-                        bodyLength: document.body.textContent.length,
-                        pageTitle: document.title,
-                        filters: {
-                            all: Array.from(document.querySelectorAll('input[type="checkbox"]')).map(f => ({
-                                id: f.getAttribute('devinid'),
-                                label: f.parentElement?.textContent?.trim(),
-                                checked: f.checked,
-                                visible: f.offsetParent !== null
-                            })),
-                            engineering: findFilterByText('engineering'),
-                            ms: findFilterByText('master of science')
-                        },
-                        buttons: {
-                            all: Array.from(document.querySelectorAll('button')).map(b => ({
-                                id: b.getAttribute('devinid'),
-                                text: b.textContent?.trim(),
-                                expanded: b.getAttribute('aria-expanded'),
-                                visible: b.offsetParent !== null
-                            })),
-                            expand: findButtonByText('expand')
-                        },
-                        content: {
-                            hasFilters: document.querySelectorAll('input[type="checkbox"]').length > 0,
-                            hasPrograms: document.querySelectorAll('button[aria-expanded]').length > 0,
-                            filterLabels: Array.from(document.querySelectorAll('input[type="checkbox"]')).map(f => 
-                                f.parentElement?.textContent?.trim()).filter(Boolean)
-                        }
-                    };
-                    
-                    console.log("=== Detailed Page State ===");
-                    console.log(JSON.stringify(state, null, 2));
-                    
-                    const isLoaded = state.readyState === 'complete' && 
-                                   state.filters.all.length > 0 && 
-                                   state.buttons.all.length > 0 &&
-                                   state.filters.engineering &&
-                                   state.filters.ms &&
-                                   state.buttons.expand;
-                    
-                    if (isLoaded) {
-                        console.log("PAGE_LOAD_COMPLETE");
-                        if (state.filters.engineering) {
-                            console.log(`FOUND_ENGINEERING_FILTER:${state.filters.engineering.getAttribute('devinid')}`);
-                        }
-                        if (state.filters.ms) {
-                            console.log(`FOUND_MS_FILTER:${state.filters.ms.getAttribute('devinid')}`);
-                        }
-                        if (state.buttons.expand) {
-                            console.log(`FOUND_EXPAND_BUTTON:${state.buttons.expand.getAttribute('devinid')}`);
-                        }
-                    }
-                    </run_javascript_browser>''')
-                    print('<get_browser_console/>')
-                    console_output = self.get_browser_console()
-                    
-                    # Parse the console output for filter and button IDs
-                    engineering_filter_id = None
-                    ms_filter_id = None
-                    expand_button_id = None
-                    
-                    for line in console_output.split('\n'):
-                        if "FOUND_ENGINEERING_FILTER:" in line:
-                            engineering_filter_id = line.split(':')[1].strip()
-                        elif "FOUND_MS_FILTER:" in line:
-                            ms_filter_id = line.split(':')[1].strip()
-                        elif "FOUND_EXPAND_BUTTON:" in line:
-                            expand_button_id = line.split(':')[1].strip()
-                    
-                    if "PAGE_LOAD_COMPLETE" in console_output:
-                        self.logger.info(f"[{datetime.now()}] Page loaded successfully")
-                        self.logger.info(f"Found filter IDs - Engineering: {engineering_filter_id}, MS: {ms_filter_id}, Expand: {expand_button_id}")
-                        
-                        # Store the IDs for later use
-                        self.engineering_filter_id = engineering_filter_id
-                        self.ms_filter_id = ms_filter_id
-                        self.expand_button_id = expand_button_id
-                        
-                        # Take another screenshot to verify successful load
-                        print('''<screenshot_browser>
-                        Verifying successful page load.
-                        Checking that filters and program listings are visible.
-                        </screenshot_browser>''')
-                        break
-                    
-                    if attempt < LOAD_TIMEOUT - 1:
-                        self.logger.info(f"[{datetime.now()}] Page not ready, waiting...")
-                        time.sleep(3)  # Further increased wait time between checks
-                        # Log detailed page state for debugging
-                        print('''<run_javascript_browser>
-                        console.log("=== Detailed Page State ===");
-                        console.log(JSON.stringify({
-                            readyState: document.readyState,
-                            bodyLength: document.body.textContent.length,
-                            filterCount: document.querySelectorAll('input[type="checkbox"]').length,
-                            buttonCount: document.querySelectorAll('button').length,
-                            hasEngFilter: Boolean(state.filters.engineering),
-                            hasMsFilter: Boolean(state.filters.ms),
-                            hasExpandButton: Boolean(state.buttons.expand)
-                        }, null, 2));
-                        </run_javascript_browser>''')
-                        print('<get_browser_console/>')
-                else:
-                    self.logger.error(f"[{datetime.now()}] Page failed to load properly")
-                    print('''<screenshot_browser>
-                    Capturing failed page load state.
-                    Looking for any error messages or incomplete loading indicators.
-                    </screenshot_browser>''')
-                    raise TimeoutError("Page failed to load within timeout")
-                
-                # If we get here, page loaded successfully
-                break
-                
-            except Exception as e:
-                self.logger.error(f"[{datetime.now()}] Error loading page (attempt {attempt + 1}): {str(e)}")
-                if attempt == MAX_RETRIES - 1:
-                    raise
-                time.sleep(5)  # Wait before retry
+        # Navigate to the programs portal
+        print(f'<navigate_browser url="{self.base_url}"/>')
+        time.sleep(3)  # Wait for initial page load
         
-        # Filter for School of Engineering and MS degrees
-        self.logger.info("Applying filters...")
+        # Click School of Engineering filter (devinid="49")
+        self.logger.info("Clicking School of Engineering filter")
+        print('<click_browser box="49"/>')
+        time.sleep(2)
         
-        if not hasattr(self, 'engineering_filter_id') or not hasattr(self, 'ms_filter_id') or not hasattr(self, 'expand_button_id'):
-            self.logger.error("Filter IDs not found during page load")
-            raise ValueError("Required filter IDs not found")
+        # Click MS degree filter (devinid="57")
+        self.logger.info("Clicking MS degree filter")
+        print('<click_browser box="57"/>')
+        time.sleep(2)
         
-        # Apply Engineering filter
-        if self.engineering_filter_id:
-            self.logger.info(f"Clicking Engineering filter (ID: {self.engineering_filter_id})")
-            print(f'''<run_javascript_browser>
-            const engFilter = document.querySelector('input[devinid="{self.engineering_filter_id}"]');
-            console.log("=== Engineering Filter State ===");
-            const engState = {
-                "exists": Boolean(engFilter),
-                "checked": engFilter ? engFilter.checked : false,
-                "visible": engFilter ? engFilter.offsetParent !== null : false,
-                "parent": engFilter ? engFilter.parentElement?.textContent?.trim() : null
+        # Click expand all button (devinid="68")
+        self.logger.info("Clicking expand all button")
+        print('<click_browser box="68"/>')
+        time.sleep(2)
+        
+        # Extract program information using JavaScript
+        self.logger.info("Extracting program information")
+        print('''<run_javascript_browser>
+        const programs = Array.from(document.querySelectorAll('button')).map(button => {
+            const h2 = button.querySelector('h2');
+            if (!h2) return null;
+            
+            const title = h2.textContent.trim();
+            const section = button.parentElement;
+            const school = section.querySelector('a[href*=engineering\\.stanford\\.edu]')?.textContent?.trim();
+            const programUrl = section.querySelector('a[aria-label*=Program\\ Website]')?.href;
+            const bulletinUrl = section.querySelector('a[href*=bulletin\\.stanford\\.edu]')?.href;
+            const email = section.querySelector('a[href^=mailto]')?.textContent?.trim();
+            
+            return {
+                title,
+                school,
+                programUrl,
+                bulletinUrl,
+                email,
+                buttonId: button.getAttribute('devinid')
             };
-            console.log(JSON.stringify(engState, null, 2));
-            </run_javascript_browser>''')
-            print('<get_browser_console/>')
-            print(f'<click_browser box="{self.engineering_filter_id}"/>')
-            time.sleep(3)
+        }).filter(p => p !== null && p.title && p.title.includes('(MS)'));
+        
+        console.log(JSON.stringify(programs, null, 2));
+        </run_javascript_browser>''')
+        
+        print('<get_browser_console/>')
+        console_output = self.get_browser_console()
+        
+        try:
+            # Parse program data from console output
+            programs = json.loads(console_output)
+            
+            # Filter for STEM programs
+            stem_programs = []
+            for program in programs:
+                if self.is_stem_program(program['title']):
+                    self.logger.info(f"Found STEM program: {program['title']}")
+                    stem_programs.append(program)
+            
+            if not stem_programs:
+                self.logger.warning("No STEM programs found")
+            
+            return stem_programs
+            
+        except Exception as e:
+            self.logger.error(f"Error parsing program data: {str(e)}")
+            return []
         
         # Apply MS filter
         if self.ms_filter_id:
