@@ -37,6 +37,9 @@ class BaseScraper:
             ]
         )
         self.logger = logging.getLogger(self.university['name'])
+        
+        # Initialize browser state
+        self._last_console_output = ""
     
     def make_request(self, url: str) -> Optional[BeautifulSoup]:
         """
@@ -151,101 +154,32 @@ class BaseScraper:
             return None
             
     def get_browser_console(self) -> str:
-        """Get the browser console output using direct console API access"""
+        """Get the browser console output"""
         try:
-            # Set up console message capture
-            setup_js = '''
-            (function() {
-                if (!window.__consoleMessages) {
-                    window.__consoleMessages = [];
-                    
-                    // Store original console methods
-                    const originalMethods = {
-                        log: console.log,
-                        info: console.info,
-                        warn: console.warn,
-                        error: console.error,
-                        debug: console.debug
-                    };
-                    
-                    // Override console methods
-                    Object.keys(originalMethods).forEach(method => {
-                        console[method] = function(...args) {
-                            // Convert arguments to strings and join
-                            const message = args.map(arg => {
-                                if (typeof arg === 'object') {
-                                    try {
-                                        return JSON.stringify(arg);
-                                    } catch (e) {
-                                        return String(arg);
-                                    }
-                                }
-                                return String(arg);
-                            }).join(' ');
-                            
-                            // Store message with metadata
-                            window.__consoleMessages.push({
-                                type: method,
-                                message: message,
-                                timestamp: new Date().toISOString()
-                            });
-                            
-                            // Call original method
-                            originalMethods[method].apply(console, args);
-                        };
-                    });
-                    
-                    return "Console capture initialized";
-                }
-                return "Console capture already initialized";
-            })();
-            '''
+            # Initialize console output storage if not exists
+            if not hasattr(self, '_last_console_output'):
+                self._last_console_output = ""
             
-            # Initialize console capture
-            self.logger.info("Initializing console capture...")
-            print(f'<run_javascript_browser>{setup_js}</run_javascript_browser>')
-            time.sleep(1)
-            
-            # Generate and log a test message
-            test_message = f"CONSOLE_TEST_{int(time.time())}"
-            print(f'<run_javascript_browser>console.log("{test_message}");</run_javascript_browser>')
-            time.sleep(1)
-            
-            # Retrieve captured messages
-            get_messages_js = '''
-            (function() {
-                const messages = window.__consoleMessages || [];
-                console.log("Retrieved", messages.length, "console messages");
-                return JSON.stringify(messages, null, 2);
-            })();
-            '''
-            
-            self.logger.info("Retrieving console messages...")
-            print(f'<run_javascript_browser>{get_messages_js}</run_javascript_browser>')
-            time.sleep(1)
-            
-            # Get the actual console output
+            # Get console output directly
             print('<get_browser_console/>')
-            time.sleep(1)
+            # The system will set self._last_console_output
             
-            # Parse and format console output
-            try:
-                # The actual console output will be replaced by the system
-                console_output = ""  # System will replace this
+            if not self._last_console_output:
+                self.logger.warning("Retrieved empty console output")
+                # Try one more time after a short wait
+                print('<wait for="browser" seconds="1"/>')
+                print('<get_browser_console/>')
+                # The system will set self._last_console_output again
+            
+            if self._last_console_output:
+                self.logger.info(f"Successfully retrieved console output ({len(self._last_console_output)} bytes)")
+            else:
+                self.logger.warning("Console output still empty after retry")
                 
-                if console_output:
-                    self.logger.info(f"Successfully retrieved console output ({len(console_output)} bytes)")
-                    return console_output
-                else:
-                    self.logger.warning("Retrieved empty console output")
-                    return ""
-                    
-            except Exception as e:
-                self.logger.error(f"Error parsing console output: {str(e)}")
-                return ""
-                
+            return self._last_console_output
+            
         except Exception as e:
-            self.logger.error(f"Error in console capture: {str(e)}")
+            self.logger.error(f"Error getting console output: {str(e)}")
             return ""
             
     def run_javascript(self, script: str) -> str:
@@ -261,30 +195,50 @@ class BaseScraper:
         try:
             self.logger.debug(f"Running JavaScript: {script[:200]}...")
             
+            # Clear existing console messages
+            print('<run_javascript_browser>window.__consoleMessages = [];</run_javascript_browser>')
+            print('<wait for="browser" seconds="1"/>')
+            
             # Add verification wrapper around the script
             wrapped_script = f'''
-                try {{
-                    console.log("=== JS EXECUTION START ===");
-                    {script}
-                    console.log("=== JS EXECUTION END ===");
-                }} catch (error) {{
-                    console.error("JavaScript execution error:", error);
-                    throw error;
-                }}
+                (() => {{
+                    try {{
+                        console.log("JS_RESULT_START");
+                        const result = (() => {{ {script} }})();
+                        console.log(JSON.stringify(result));
+                        console.log("JS_RESULT_END");
+                        return result;
+                    }} catch (error) {{
+                        console.error("JavaScript execution error:", error);
+                        console.log("JS_RESULT_START");
+                        console.log(JSON.stringify({{ error: error.message }}));
+                        console.log("JS_RESULT_END");
+                        throw error;
+                    }}
+                }})();
             '''
             
             print(f'<run_javascript_browser>{wrapped_script}</run_javascript_browser>')
-            time.sleep(1)  # Wait for execution
+            print('<wait for="browser" seconds="1"/>')
             
-            self.logger.debug("Getting console output to verify execution...")
-            print('<get_browser_console/>')  # Get console output
+            # Get console output and parse result
+            console_output = self.get_browser_console()
+            if console_output:
+                start_idx = console_output.find("JS_RESULT_START")
+                end_idx = console_output.find("JS_RESULT_END")
+                if start_idx != -1 and end_idx != -1:
+                    result = console_output[start_idx + len("JS_RESULT_START"):end_idx].strip()
+                    try:
+                        return json.loads(result)
+                    except json.JSONDecodeError:
+                        return result
             
-            return ""  # The system will replace this with actual output
+            return ""
         except Exception as e:
             self.logger.error(f"Error running JavaScript: {str(e)}")
             return ""
-    def wait_for_browser(self, seconds: int, check_interval: int = 2, content_check: str = None) -> bool:
-        """Wait for the browser with improved async handling and timeouts
+    def wait_for_browser(self, seconds: int = 30, check_interval: int = 2, content_check: str = None) -> bool:
+        """Wait for the browser with simplified state checking and reliable console capture
         
         Args:
             seconds: Maximum time to wait in seconds
@@ -295,167 +249,83 @@ class BaseScraper:
             bool: True if browser is ready, False if timeout occurred
         """
         total_waited = 0
-        last_check_time = 0
         self.logger.info(f"Waiting up to {seconds} seconds for browser...")
         
         while total_waited < seconds:
-            current_time = time.time()
-            if current_time - last_check_time < check_interval:
-                time.sleep(0.1)  # Prevent CPU spinning
-                continue
-                
-            last_check_time = current_time
+            # Clear console and wait briefly
+            print('<run_javascript_browser>window.__consoleMessages = [];</run_javascript_browser>')
+            print('<wait for="browser" seconds="1"/>')
             
-            # Check browser state with improved async handling and proper Promise resolution
-            print(f'''<run_javascript_browser>
-            (async () => {{
-                try {{
-                    // Check network idle state
-                    const checkNetworkIdle = () => new Promise((resolve) => {{
-                        if (window.performance && window.performance.getEntriesByType) {{
-                            const resources = window.performance.getEntriesByType('resource');
-                            const pendingResources = resources.filter(r => !r.responseEnd);
-                            resolve(pendingResources.length === 0);
-                        }} else {{
-                            resolve(true);
-                        }}
-                    }});
-                    
-                    // Wait for network idle
-                    const networkIdle = await checkNetworkIdle();
-                    
-                    // Verify console functionality
-                    const verifyConsole = () => new Promise((resolve) => {{
-                        const testMessage = 'CONSOLE_TEST_' + Date.now();
-                        let originalLog = console.log;
-                        let testPassed = false;
-                        
-                        console.log = (...args) => {{
-                            originalLog.apply(console, args);
-                            if (args[0] === testMessage) {{
-                                testPassed = true;
-                            }}
-                        }};
-                        
-                        console.log(testMessage);
-                        setTimeout(() => {{
-                            console.log = originalLog;
-                            resolve(testPassed);
-                        }}, 100);
-                    }});
-                    
-                    // Check console functionality
-                    const consoleWorking = await verifyConsole();
-                    
-                    // Check page state
-                    const state = {{
-                        readyState: document.readyState,
-                        url: window.location.href,
-                        bodyLength: document.body.innerHTML.length,
-                        title: document.title,
-                        networkIdle: networkIdle,
-                        hasError: !!document.querySelector('.error-message, .error'),
-                        consoleWorking: consoleWorking,
-                        contentCheck: null,
-                        success: false,
-                        errors: []
-                    }};
-                    
-                    // Check for specific content if requested
-                    const contentSelector = '{content_check}';
-                    if (contentSelector && contentSelector !== 'None') {{
-                        const elements = document.querySelectorAll(contentSelector);
-                        state.contentCheck = {{
-                            found: elements.length > 0,
-                            count: elements.length,
-                            visible: Array.from(elements).some(el => 
-                                window.getComputedStyle(el).display !== 'none' &&
-                                window.getComputedStyle(el).visibility !== 'hidden'
-                            )
-                        }};
-                    }}
-                    
-                    // Determine if page is ready and collect any issues
-                    if (state.readyState !== 'complete') state.errors.push('Document not complete');
-                    if (state.bodyLength === 0) state.errors.push('Empty body');
-                    if (!state.networkIdle) state.errors.push('Network not idle');
-                    if (!state.consoleWorking) state.errors.push('Console not working');
-                    if (state.contentCheck && (!state.contentCheck.found || !state.contentCheck.visible)) {{
-                        state.errors.push('Required content not found/visible');
-                    }}
-                    
-                    state.success = (
-                        state.readyState === 'complete' &&
-                        state.bodyLength > 0 &&
-                        state.networkIdle &&
-                        state.consoleWorking &&
-                        (!state.contentCheck || 
-                         (state.contentCheck.found && state.contentCheck.visible))
-                    );
-                    
-                    console.log("BROWSER_CHECK_START");
-                    console.log(JSON.stringify(state));
-                    console.log("BROWSER_CHECK_END");
-                    
-                }} catch (error) {{
-                    console.error("Browser check failed:", error);
-                    console.log("BROWSER_CHECK_START");
-                    console.log(JSON.stringify({{ success: false, error: error.message }}));
-                    console.log("BROWSER_CHECK_END");
-                }}
-            }})();
+            # Check basic page state
+            print('''<run_javascript_browser>
+            (() => {
+                const state = {
+                    readyState: document.readyState,
+                    url: window.location.href,
+                    bodyLength: document.body.innerHTML.length,
+                    title: document.title,
+                    hasError: !!document.querySelector('.error-message, .error'),
+                    success: false,
+                    errors: []
+                };
+                
+                if (state.readyState !== 'complete') state.errors.push('Document not complete');
+                if (state.bodyLength === 0) state.errors.push('Empty body');
+                
+                // Check for specific content if requested
+                const contentSelector = '${content_check}';
+                if (contentSelector && contentSelector !== 'None') {
+                    const elements = document.querySelectorAll(contentSelector);
+                    if (elements.length === 0) {
+                        state.errors.push('Required content not found');
+                    } else {
+                        const visible = Array.from(elements).some(el => 
+                            window.getComputedStyle(el).display !== 'none' &&
+                            window.getComputedStyle(el).visibility !== 'hidden'
+                        );
+                        if (!visible) state.errors.push('Required content not visible');
+                    }
+                }
+                
+                state.success = (
+                    state.readyState === 'complete' &&
+                    state.bodyLength > 0 &&
+                    state.errors.length === 0
+                );
+                
+                console.log("BROWSER_STATE:" + JSON.stringify(state));
+            })();
             </run_javascript_browser>''')
             
-            # Wait for check interval
-            print(f'<wait for="browser" seconds="{check_interval}"/>')
-            total_waited += check_interval
-            
-            # Get console output to verify state
-            print('<get_browser_console/>')
+            # Get console output
+            print('<wait for="browser" seconds="1"/>')
             console_output = self.get_browser_console()
             
             if console_output:
                 try:
-                    # Look for JSON state object in console output with improved error handling
-                    state_start = console_output.find('BROWSER_CHECK_START')
-                    state_end = console_output.find('BROWSER_CHECK_END')
-                    if state_start != -1 and state_end != -1:
-                        state_json = console_output[state_start + len('BROWSER_CHECK_START'):state_end].strip()
-                        try:
-                            state_data = json.loads(state_json)
-                            self.logger.debug(f"Browser state: {state_data}")
-                        except json.JSONDecodeError as e:
-                            self.logger.error(f"Failed to parse browser state JSON: {e}")
-                            self.logger.debug(f"Raw JSON: {state_json}")
-                            return False
+                    # Parse browser state
+                    state_marker = "BROWSER_STATE:"
+                    if state_marker in console_output:
+                        state_json = console_output.split(state_marker)[1].split("\n")[0].strip()
+                        state_data = json.loads(state_json)
                         
-                        # Check for error conditions
-                        if state_data.get('hasError'):
-                            self.logger.error("Page error detected")
-                            return False
-                            
-                        # Verify all conditions are met
-                        conditions_met = (
-                            state_data.get('readyState') == 'complete' and
-                            state_data.get('bodyLength', 0) > 0 and
-                            state_data.get('networkIdle', True) and
-                            (not content_check or 
-                             (state_data.get('contentCheck', {}).get('found') and 
-                              state_data.get('contentCheck', {}).get('visible')))
-                        )
-                        
-                        if conditions_met:
+                        if state_data.get('success', False):
                             self.logger.info(f"Browser ready after {total_waited} seconds")
                             return True
                         else:
-                            self.logger.debug(f"Still waiting: {state_data}")
+                            self.logger.debug(f"Browser not ready: {state_data.get('errors', [])}")
+                    else: 
+                        self.logger.warning("Could not find browser state in console output")
                 except Exception as e:
-                    self.logger.error(f"Error parsing browser state: {str(e)}")
+                    self.logger.error(f"Error checking browser state: {str(e)}")
             
-            # Take screenshot if having issues
+            # Take screenshot and wait
             if total_waited >= seconds / 2:
-                print('<screenshot_browser>\nChecking page state during wait\n</screenshot_browser>')
+                print('<screenshot_browser>Checking page state during wait</screenshot_browser>')
             
+            print(f'<wait for="browser" seconds="{check_interval}"/>')
+            total_waited += check_interval
+        
         self.logger.warning(f"Browser wait timeout after {seconds} seconds")
         return False
         
