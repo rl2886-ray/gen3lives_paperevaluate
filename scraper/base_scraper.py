@@ -206,10 +206,13 @@ class BaseScraper:
             # Initialize with persistence
             print('''<run_javascript_browser>
             (() => {
-                // Skip if already initialized
-                if (window.__consoleInitialized) {
-                    console.log("Console capture already initialized");
-                    return true;
+                // Always reinitialize to ensure clean state
+                try {
+                    delete window.__consoleInitialized;
+                    delete window.__consoleMessages;
+                    delete window.__originalConsole;
+                } catch (e) {
+                    console.error("Error cleaning up old console state:", e);
                 }
                 
                 try {
@@ -250,20 +253,49 @@ class BaseScraper:
                         };
                     }
                     
-                    // Override console methods with persistence
-                    Object.defineProperties(console, {
-                        log: { value: wrapConsole('log'), configurable: true, writable: true },
-                        info: { value: wrapConsole('info'), configurable: true, writable: true },
-                        warn: { value: wrapConsole('warn'), configurable: true, writable: true },
-                        error: { value: wrapConsole('error'), configurable: true, writable: true }
+                    // Override console methods with persistence and proper cleanup handling
+                    ['log', 'info', 'warn', 'error'].forEach(method => {
+                        const wrapper = wrapConsole(method);
+                        wrapper.__wrapped = true;
+                        wrapper.__original = console[method];
+                        console[method] = wrapper;
                     });
                     
-                    // Mark as initialized with persistence
-                    Object.defineProperty(window, '__consoleInitialized', {
-                        value: true,
-                        configurable: true,
-                        writable: false
-                    });
+                    // Mark as initialized with persistence and verify state
+                    const verifyState = () => {
+                        if (!window.__consoleMessages || !Array.isArray(window.__consoleMessages)) {
+                            throw new Error("Console messages array not properly initialized");
+                        }
+                        if (!window.__originalConsole || typeof window.__originalConsole !== 'object') {
+                            throw new Error("Original console not properly saved");
+                        }
+                        if (!console.log.__wrapped || !console.info.__wrapped || 
+                            !console.warn.__wrapped || !console.error.__wrapped) {
+                            throw new Error("Console methods not properly wrapped");
+                        }
+                    };
+                    
+                    window.__consoleInitialized = true;
+                    verifyState();
+                    
+                    // Add cleanup method
+                    window.__cleanupConsole = () => {
+                        try {
+                            ['log', 'info', 'warn', 'error'].forEach(method => {
+                                if (console[method].__original) {
+                                    console[method] = console[method].__original;
+                                }
+                            });
+                            delete window.__consoleMessages;
+                            delete window.__originalConsole;
+                            delete window.__consoleInitialized;
+                            console.log("Console cleanup successful");
+                            return true;
+                        } catch (e) {
+                            console.error("Console cleanup failed:", e);
+                            return false;
+                        }
+                    };
                     
                     console.log("Console capture initialized successfully");
                     return true;
@@ -412,14 +444,21 @@ class BaseScraper:
         try:
             self.logger.debug(f"Running JavaScript: {script[:200]}...")
             
-            # Clear previous messages
+            # Clean up previous console state
             print('''<run_javascript_browser>
             (() => {
-                if (!window.__consoleInitialized) {
+                try {
+                    // Clean up if initialized
+                    if (window.__cleanupConsole) {
+                        window.__cleanupConsole();
+                    }
+                    // Reset messages array
+                    window.__consoleMessages = [];
+                    return true;
+                } catch (e) {
+                    console.error("Error cleaning up console:", e);
                     return false;
                 }
-                window.__consoleMessages = [];
-                return true;
             })();
             </run_javascript_browser>''')
             print('<wait for="browser" seconds="1"/>')
