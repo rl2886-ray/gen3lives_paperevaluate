@@ -20,23 +20,49 @@ def scraper(setup_logging):
     """Create a MITScraper instance for testing with browser verification"""
     scraper = MITScraper()
     
-    # Initialize browser and verify it's working
+    # Initialize browser with robust verification
     test_url = "https://oge.mit.edu/programs/"
     print(f'<navigate_browser url="{test_url}"/>')
+    print('<wait for="browser" seconds="5"/>')
     
-    # Wait for browser with console check
-    assert scraper.wait_for_browser(30, check_interval=2), "Browser failed to initialize"
+    # Clear console and verify browser state
+    print('<run_javascript_browser>window.__consoleMessages = [];</run_javascript_browser>')
+    print('<wait for="browser" seconds="2"/>')
     
-    # Verify console is working
+    # Check document readiness
+    print('''<run_javascript_browser>
+    (() => {
+        const state = {
+            ready: document.readyState === 'complete',
+            url: window.location.href,
+            title: document.title,
+            content: document.body.textContent.length > 0
+        };
+        console.log("BROWSER_STATE:" + JSON.stringify(state));
+        return state;
+    })();
+    </run_javascript_browser>''')
+    print('<wait for="browser" seconds="2"/>')
+    
+    # Verify console functionality
     marker = f"TEST_MARKER_{int(time.time())}"
     print(f'<run_javascript_browser>console.log("{marker}");</run_javascript_browser>')
+    print('<wait for="browser" seconds="2"/>')
     console_output = scraper.get_browser_console()
-    assert marker in console_output, "Console not working properly"
+    
+    # Take screenshot for debugging
+    print('<screenshot_browser>\nVerifying browser initialization\n</screenshot_browser>')
+    
+    assert console_output and marker in console_output, "Console not working properly"
+    assert scraper.wait_for_browser(30, check_interval=2), "Browser failed to initialize"
     
     yield scraper
     
-    # Cleanup
+    # Cleanup with verification
+    print('<run_javascript_browser>window.__consoleMessages = [];</run_javascript_browser>')
+    print('<wait for="browser" seconds="2"/>')
     print('<run_javascript_browser>console.clear();</run_javascript_browser>')
+    print('<screenshot_browser>\nVerifying cleanup\n</screenshot_browser>')
 
 def test_find_program_urls(scraper):
     """Test finding program URLs"""
