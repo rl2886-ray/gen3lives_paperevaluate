@@ -5,15 +5,38 @@ import pytest
 from scraper.mit_scraper import MITScraper
 import logging
 import json
+import time
 
-@pytest.fixture
-def scraper():
-    """Create a MITScraper instance for testing"""
+@pytest.fixture(autouse=True)
+def setup_logging():
+    """Setup logging for all tests"""
     logging.basicConfig(
         level=logging.DEBUG,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    return MITScraper()
+
+@pytest.fixture
+def scraper(setup_logging):
+    """Create a MITScraper instance for testing with browser verification"""
+    scraper = MITScraper()
+    
+    # Initialize browser and verify it's working
+    test_url = "https://oge.mit.edu/programs/"
+    print(f'<navigate_browser url="{test_url}"/>')
+    
+    # Wait for browser with console check
+    assert scraper.wait_for_browser(30, check_interval=2), "Browser failed to initialize"
+    
+    # Verify console is working
+    marker = f"TEST_MARKER_{int(time.time())}"
+    print(f'<run_javascript_browser>console.log("{marker}");</run_javascript_browser>')
+    console_output = scraper.get_browser_console()
+    assert marker in console_output, "Console not working properly"
+    
+    yield scraper
+    
+    # Cleanup
+    print('<run_javascript_browser>console.clear();</run_javascript_browser>')
 
 def test_find_program_urls(scraper):
     """Test finding program URLs"""
@@ -71,7 +94,7 @@ def test_minimal_program_info(scraper):
     assert isinstance(result['courses']['core_courses'], list)
 
 def test_extract_program_info_success(scraper):
-    """Test successful program info extraction"""
+    """Test successful program info extraction with proper browser handling"""
     test_program = {
         'title': 'Electrical Engineering and Computer Science',
         'url': 'https://oge.mit.edu/programs/eecs/',
@@ -79,6 +102,16 @@ def test_extract_program_info_success(scraper):
         'degree_type': 'MS'
     }
     
+    # Navigate to program page
+    print(f'<navigate_browser url="{test_program["url"]}"/>')
+    
+    # Wait for page to load and verify browser state
+    assert scraper.wait_for_browser(30, check_interval=2), "Failed to load program page"
+    
+    # Take screenshot for debugging
+    print('<screenshot_browser>\nVerifying program page content\n</screenshot_browser>')
+    
+    # Extract program info with proper browser state
     result = scraper.extract_program_info(test_program)
     
     # Test structure and types
