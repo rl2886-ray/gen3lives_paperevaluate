@@ -25,23 +25,8 @@ def scraper(setup_logging):
     print(f'<navigate_browser url="{test_url}"/>')
     print('<wait for="browser" seconds="5"/>')
     
-    # Reset and initialize persistent console capture
-    print('''<run_javascript_browser>
-    (() => {
-        // Clear existing state
-        localStorage.removeItem('__devinConsoleState');
-        console.log("DEBUG: Test fixture setup - cleared console state");
-        
-        // Initialize fresh state
-        localStorage.setItem('__devinConsoleState', JSON.stringify({
-            messages: [],
-            initialized: false
-        }));
-        console.log("DEBUG: Test fixture setup - initialized fresh state");
-        
-        return JSON.parse(localStorage.getItem('__devinConsoleState'));
-    })();
-    </run_javascript_browser>''')
+    # Initialize console capture
+    scraper.initialize_console_capture()
     print('<wait for="browser" seconds="2"/>')
     
     # Check document readiness
@@ -59,16 +44,26 @@ def scraper(setup_logging):
     </run_javascript_browser>''')
     print('<wait for="browser" seconds="2"/>')
     
-    # Verify console functionality
+    # Verify console functionality with retries
     marker = f"TEST_MARKER_{int(time.time())}"
-    print(f'<run_javascript_browser>console.log("{marker}");</run_javascript_browser>')
-    print('<wait for="browser" seconds="2"/>')
-    console_output = scraper.get_browser_console()
+    max_retries = 3
+    console_output = ""
+    
+    for attempt in range(max_retries):
+        print(f'<run_javascript_browser>console.log("{marker}");</run_javascript_browser>')
+        print('<wait for="browser" seconds="2"/>')
+        console_output = scraper.get_browser_console()
+        
+        if console_output and marker in console_output:
+            break
+            
+        print(f"Attempt {attempt + 1} failed, retrying...")
+        print('<wait for="browser" seconds="2"/>')
     
     # Take screenshot for debugging
     print('<screenshot_browser>\nVerifying browser initialization\n</screenshot_browser>')
     
-    assert console_output and marker in console_output, "Console not working properly"
+    assert console_output and marker in console_output, f"Console not working properly after {max_retries} attempts"
     assert scraper.wait_for_browser(30, check_interval=2), "Browser failed to initialize"
     
     yield scraper

@@ -153,106 +153,93 @@ class BaseScraper:
             self.logger.error(f"Error getting browser content: {str(e)}")
             return None
             
+    def initialize_console_capture(self):
+        """Initialize the console capture mechanism"""
+        print('''<run_javascript_browser>
+        (() => {
+            if (window.__consoleInitialized) {
+                return true;
+            }
+            
+            try {
+                // Initialize message storage
+                window.__consoleMessages = [];
+                
+                // Store original methods
+                const originalConsole = {
+                    log: console.log.bind(console),
+                    info: console.info.bind(console),
+                    warn: console.warn.bind(console),
+                    error: console.error.bind(console)
+                };
+                
+                // Helper to stringify any type of argument
+                function safeStringify(arg) {
+                    if (typeof arg === 'undefined') return 'undefined';
+                    if (arg === null) return 'null';
+                    if (typeof arg === 'object') {
+                        try {
+                            return JSON.stringify(arg);
+                        } catch (e) {
+                            return '[Object]';
+                        }
+                    }
+                    return String(arg);
+                }
+                
+                // Create wrapper for each console method
+                function wrapConsole(method) {
+                    return function() {
+                        try {
+                            const args = Array.from(arguments).map(safeStringify);
+                            const msg = `${method}: ${args.join(' ')}`;
+                            window.__consoleMessages.push(msg);
+                            originalConsole[method].apply(console, arguments);
+                        } catch (e) {
+                            originalConsole.error('Error in console wrapper:', e);
+                        }
+                    };
+                }
+                
+                // Override console methods
+                console.log = wrapConsole('log');
+                console.info = wrapConsole('info');
+                console.warn = wrapConsole('warn');
+                console.error = wrapConsole('error');
+                
+                window.__consoleInitialized = true;
+                console.log("Console capture initialized");
+                
+                return true;
+            } catch (e) {
+                console.error("ERROR: Failed to initialize console capture:", e);
+                return false;
+            }
+        })();
+        </run_javascript_browser>''')
+        print('<wait for="browser" seconds="1"/>')
+        
     def get_browser_console(self) -> str:
-        """Get browser console output using localStorage for persistence"""
+        """Get browser console output"""
         try:
-            # Initialize console capture with localStorage
+            # Get console messages
             print('''<run_javascript_browser>
             (() => {
-                try {
-                    // Initialize localStorage if needed
-                    if (!localStorage.getItem('devinConsoleMessages')) {
-                        localStorage.setItem('devinConsoleMessages', JSON.stringify([]));
-                    }
-                    
-                    // Helper functions for localStorage
-                    const consoleStorage = {
-                        getMessages: () => {
-                            try {
-                                return JSON.parse(localStorage.getItem('devinConsoleMessages')) || [];
-                            } catch (e) {
-                                console.error('Error reading messages:', e);
-                                return [];
-                            }
-                        },
-                        addMessage: (msg) => {
-                            try {
-                                const messages = consoleStorage.getMessages();
-                                messages.push(msg);
-                                localStorage.setItem('devinConsoleMessages', JSON.stringify(messages));
-                            } catch (e) {
-                                console.error('Error adding message:', e);
-                            }
-                        },
-                        clear: () => {
-                            localStorage.setItem('devinConsoleMessages', JSON.stringify([]));
-                        }
-                    };
-                    
-                    // Store original methods
-                    const originalConsole = {
-                        log: console.log.bind(console),
-                        info: console.info.bind(console),
-                        warn: console.warn.bind(console),
-                        error: console.error.bind(console)
-                    };
-                    
-                    // Helper to stringify any type of argument
-                    function safeStringify(arg) {
-                        if (typeof arg === 'undefined') return 'undefined';
-                        if (arg === null) return 'null';
-                        if (typeof arg === 'object') {
-                            try {
-                                return JSON.stringify(arg);
-                            } catch (e) {
-                                return '[Object]';
-                            }
-                        }
-                        return String(arg);
-                    }
-                    
-                    // Create wrapper for each console method
-                    function wrapConsole(method) {
-                        return function() {
-                            try {
-                                const args = Array.from(arguments).map(safeStringify);
-                                const msg = `${method}: ${args.join(' ')}`;
-                                consoleStorage.addMessage(msg);
-                                originalConsole[method].apply(console, arguments);
-                            } catch (e) {
-                                originalConsole.error('Error in console wrapper:', e);
-                            }
-                        };
-                    }
-                    
-                    // Override console methods
-                    console.log = wrapConsole('log');
-                    console.info = wrapConsole('info');
-                    console.warn = wrapConsole('warn');
-                    console.error = wrapConsole('error');
-                    
-                    // Clear previous messages
-                    consoleStorage.clear();
-                    
-                    // Verify console capture is working
-                    const testMsg = "TEST_CONSOLE_CAPTURE_" + Date.now();
-                    console.log(testMsg);
-                    const messages = consoleStorage.getMessages();
-                    const working = messages.some(msg => msg.includes(testMsg));
-                    
-                    console.log("DEVIN_CONSOLE_START");
-                    console.log(JSON.stringify({
-                        initialized: true,
-                        working: working,
-                        messages: messages
-                    }));
-                    console.log("DEVIN_CONSOLE_END");
-                    
-                    return true;
-                } catch (e) {
-                    console.error("ERROR: Failed to initialize console capture:", e);
+                if (!window.__consoleInitialized) {
+                    console.error("Console capture not initialized");
                     return false;
                 }
+                
+                const messages = window.__consoleMessages || [];
+                window.__consoleMessages = []; // Clear after reading
+                
+                console.log("DEVIN_CONSOLE_START");
+                console.log(JSON.stringify({
+                    messages: messages
+                }));
+                console.log("DEVIN_CONSOLE_END");
+                
+                return true;
             })();
             </run_javascript_browser>''')
             
