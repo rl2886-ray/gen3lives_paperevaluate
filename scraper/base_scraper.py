@@ -151,29 +151,42 @@ class BaseScraper:
             return None
             
     def get_browser_console(self) -> str:
-        """Get the browser console output with retries"""
+        """Get the browser console output with retries and verification"""
         max_retries = 3
         retry_delay = 2
         
         for attempt in range(max_retries):
             try:
+                # Clear console before attempting to get output
+                print('<run_javascript_browser>console.clear();</run_javascript_browser>')
+                time.sleep(1)  # Wait for console to clear
+                
+                # Add a marker to verify console access
+                marker = f"CONSOLE_CHECK_{attempt}_{int(time.time())}"
+                print(f'<run_javascript_browser>console.log("{marker}");</run_javascript_browser>')
+                time.sleep(1)  # Wait for log
+                
+                # Get console output
                 print('<get_browser_console/>')
-                # Wait briefly for output to be captured
-                time.sleep(retry_delay)
-                # The system will replace this with actual console output
-                console_output = self.run_javascript("console.log('Checking console output capture')")
+                time.sleep(retry_delay)  # Wait for output capture
                 
-                if console_output and console_output != "Result will be provided by the system":
-                    self.logger.debug(f"Got console output on attempt {attempt + 1}")
+                # The actual console output will be provided by the system
+                # This is just a placeholder that will be replaced
+                console_output = "Result will be provided by the system"
+                
+                if console_output and marker in console_output:
+                    self.logger.info(f"Console output captured successfully on attempt {attempt + 1}")
                     return console_output
-                    
-                self.logger.warning(f"No console output on attempt {attempt + 1}, retrying...")
                 
-            except Exception as e:
-                self.logger.error(f"Error getting browser console (attempt {attempt + 1}): {str(e)}")
+                self.logger.warning(f"Console marker not found in output (attempt {attempt + 1})")
                 if attempt < max_retries - 1:
                     time.sleep(retry_delay)
                     
+            except Exception as e:
+                self.logger.error(f"Error getting console output (attempt {attempt + 1}): {str(e)}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+        
         self.logger.error("Failed to get console output after all retries")
         return ""
             
@@ -195,10 +208,107 @@ class BaseScraper:
         except Exception as e:
             self.logger.error(f"Error running JavaScript: {str(e)}")
             return ""
-    def wait_for_browser(self, seconds: int) -> None:
-        """Wait for the browser with logging"""
-        self.logger.info(f"Waiting for {seconds} seconds...")
-        print(f'<wait for="browser" seconds="{seconds}"/>')
+    def wait_for_browser(self, seconds: int, check_interval: int = 2, content_check: str = None) -> bool:
+        """Wait for the browser with enhanced state verification
+        
+        Args:
+            seconds: Maximum time to wait in seconds
+            check_interval: How often to check browser state in seconds
+            content_check: Optional CSS selector to verify specific content loaded
+            
+        Returns:
+            bool: True if browser is ready, False if timeout occurred
+        """
+        total_waited = 0
+        self.logger.info(f"Waiting up to {seconds} seconds for browser...")
+        
+        while total_waited < seconds:
+            # Check browser state with enhanced verification
+            print('''<run_javascript_browser>
+            function checkNetworkIdle() {
+                return new Promise((resolve) => {
+                    if (window.performance && window.performance.getEntriesByType) {
+                        const resources = window.performance.getEntriesByType('resource');
+                        const pendingResources = resources.filter(r => !r.responseEnd);
+                        resolve(pendingResources.length === 0);
+                    } else {
+                        resolve(true);  // Can't check network, assume idle
+                    }
+                });
+            }
+            
+            async function checkBrowserState() {
+                const networkIdle = await checkNetworkIdle();
+                const state = {
+                    readyState: document.readyState,
+                    url: window.location.href,
+                    bodyLength: document.body.innerHTML.length,
+                    title: document.title,
+                    networkIdle: networkIdle,
+                    hasError: !!document.querySelector('.error-message, .error'),
+                    contentCheck: null
+                };
+                
+                if ('CONTENT_CHECK') {
+                    const element = document.querySelector('CONTENT_CHECK');
+                    state.contentCheck = {
+                        found: !!element,
+                        visible: element ? window.getComputedStyle(element).display !== 'none' : false,
+                        text: element ? element.textContent : null
+                    };
+                }
+                
+                console.log("Browser State Check:", JSON.stringify(state));
+            }
+            
+            checkBrowserState();
+            </run_javascript_browser>'''.replace('CONTENT_CHECK', content_check if content_check else 'body'))
+            
+            # Wait for check interval
+            print(f'<wait for="browser" seconds="{check_interval}"/>')
+            total_waited += check_interval
+            
+            # Get console output to verify state
+            print('<get_browser_console/>')
+            console_output = self.get_browser_console()
+            
+            if console_output:
+                try:
+                    # Look for JSON state object in console output
+                    state_start = console_output.find('"Browser State Check":')
+                    if state_start != -1:
+                        state_json = console_output[state_start:].split('\n')[0]
+                        state_data = json.loads(state_json.replace('"Browser State Check":', '').strip())
+                        
+                        # Check for error conditions
+                        if state_data.get('hasError'):
+                            self.logger.error("Page error detected")
+                            return False
+                            
+                        # Verify all conditions are met
+                        conditions_met = (
+                            state_data.get('readyState') == 'complete' and
+                            state_data.get('bodyLength', 0) > 0 and
+                            state_data.get('networkIdle', True) and
+                            (not content_check or 
+                             (state_data.get('contentCheck', {}).get('found') and 
+                              state_data.get('contentCheck', {}).get('visible')))
+                        )
+                        
+                        if conditions_met:
+                            self.logger.info(f"Browser ready after {total_waited} seconds")
+                            return True
+                        else:
+                            self.logger.debug(f"Still waiting: {state_data}")
+                except Exception as e:
+                    self.logger.error(f"Error parsing browser state: {str(e)}")
+            
+            # Take screenshot if having issues
+            if total_waited >= seconds / 2:
+                print('<screenshot_browser>\nChecking page state during wait\n</screenshot_browser>')
+            
+        self.logger.warning(f"Browser wait timeout after {seconds} seconds")
+        return False
         
     def parse_console_json(self, console_output: str, start_marker: str = None, end_marker: str = None) -> List[Dict]:
         """
