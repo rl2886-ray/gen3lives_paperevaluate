@@ -261,7 +261,8 @@ class BaseScraper:
             
             # Get console output
             print('<get_browser_console/>')
-            raw_output = self.get_browser_console()
+            raw_output = self._last_console_output or ""
+            self._last_console_output = ""  # Reset after reading
             
             try:
                 self.logger.debug("Processing console output...")
