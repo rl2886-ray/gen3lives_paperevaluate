@@ -154,31 +154,73 @@ class BaseScraper:
             return None
             
     def get_browser_console(self) -> str:
-        """Get the browser console output with enhanced error handling and retries"""
+        """Get the browser console output with enhanced error handling and message preservation"""
         try:
-            max_retries = 3
-            retry_delay = 1
-            console_output = ""
+            # Initialize console capture if not already done
+            print('''<run_javascript_browser>
+            if (typeof window.__devinConsole === 'undefined') {
+                window.__devinConsole = {
+                    messages: [],
+                    initialized: false
+                };
+                
+                // Create a more robust console override
+                const originalConsole = {
+                    log: console.log,
+                    info: console.info,
+                    warn: console.warn,
+                    error: console.error
+                };
+                
+                function wrapConsole(method) {
+                    return function() {
+                        const msg = Array.from(arguments).map(arg => 
+                            typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+                        ).join(' ');
+                        window.__devinConsole.messages.push(msg);
+                        originalConsole[method].apply(console, arguments);
+                    };
+                }
+                
+                console.log = wrapConsole('log');
+                console.info = wrapConsole('info');
+                console.warn = wrapConsole('warn');
+                console.error = wrapConsole('error');
+                
+                window.__devinConsole.initialized = true;
+            }
             
-            for attempt in range(max_retries):
-                # Clear existing console messages
-                print('<run_javascript_browser>window.__consoleMessages = [];</run_javascript_browser>')
-                print(f'<wait for="browser" seconds="{retry_delay}"/>')
-                
-                # Get console output
-                print('<get_browser_console/>')
-                console_output = self._last_console_output or ""
-                
-                if console_output:
-                    self.logger.info(f"Successfully retrieved console output on attempt {attempt + 1} ({len(console_output)} bytes)")
-                    break
-                    
-                self.logger.warning(f"Empty console output on attempt {attempt + 1}")
-                print('<screenshot_browser>Checking page state after empty console</screenshot_browser>')
-                
-            if not console_output:
-                self.logger.error("Failed to retrieve console output after all retries")
-                
+            // Function to get messages
+            function getMessages() {
+                const messages = window.__devinConsole.messages;
+                console.log("DEVIN_CONSOLE_DUMP: " + JSON.stringify(messages));
+                return messages;
+            }
+            
+            // Get current messages
+            getMessages();
+            </run_javascript_browser>''')
+            
+            # Wait for messages to be processed
+            print('<wait for="browser" seconds="2"/>')
+            
+            # Get console output
+            print('<get_browser_console/>')
+            console_output = self._last_console_output or ""
+            
+            if console_output:
+                # Try to extract messages from the DEVIN_CONSOLE_DUMP
+                try:
+                    import json
+                    start_marker = "DEVIN_CONSOLE_DUMP: "
+                    if start_marker in console_output:
+                        messages_json = console_output[console_output.index(start_marker) + len(start_marker):]
+                        messages = json.loads(messages_json)
+                        return "\n".join(messages)
+                except Exception as e:
+                    self.logger.error(f"Error parsing console messages: {str(e)}")
+            
+            self.logger.warning("Failed to retrieve console messages")
             return console_output
             
         except Exception as e:

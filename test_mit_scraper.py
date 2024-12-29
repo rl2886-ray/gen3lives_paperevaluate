@@ -25,8 +25,40 @@ def scraper(setup_logging):
     print(f'<navigate_browser url="{test_url}"/>')
     print('<wait for="browser" seconds="5"/>')
     
-    # Clear console and verify browser state
-    print('<run_javascript_browser>window.__consoleMessages = [];</run_javascript_browser>')
+    # Initialize enhanced console capture
+    print('''<run_javascript_browser>
+    if (typeof window.__devinConsole === 'undefined') {
+        window.__devinConsole = {
+            messages: [],
+            initialized: false
+        };
+        
+        // Create a more robust console override
+        const originalConsole = {
+            log: console.log,
+            info: console.info,
+            warn: console.warn,
+            error: console.error
+        };
+        
+        function wrapConsole(method) {
+            return function() {
+                const msg = Array.from(arguments).map(arg => 
+                    typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+                ).join(' ');
+                window.__devinConsole.messages.push(msg);
+                originalConsole[method].apply(console, arguments);
+            };
+        }
+        
+        console.log = wrapConsole('log');
+        console.info = wrapConsole('info');
+        console.warn = wrapConsole('warn');
+        console.error = wrapConsole('error');
+        
+        window.__devinConsole.initialized = true;
+    }
+    </run_javascript_browser>''')
     print('<wait for="browser" seconds="2"/>')
     
     # Check document readiness
