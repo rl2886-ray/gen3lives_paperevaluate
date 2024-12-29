@@ -156,72 +156,152 @@ class BaseScraper:
     def get_browser_console(self) -> str:
         """Get the browser console output with enhanced error handling and message preservation"""
         try:
-            # Initialize console capture if not already done
+            # Initialize or verify console capture
             print('''<run_javascript_browser>
-            if (typeof window.__devinConsole === 'undefined') {
-                window.__devinConsole = {
-                    messages: [],
-                    initialized: false
-                };
-                
-                // Create a more robust console override
-                const originalConsole = {
-                    log: console.log,
-                    info: console.info,
-                    warn: console.warn,
-                    error: console.error
-                };
-                
-                function wrapConsole(method) {
-                    return function() {
-                        const msg = Array.from(arguments).map(arg => 
-                            typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
-                        ).join(' ');
-                        window.__devinConsole.messages.push(msg);
-                        originalConsole[method].apply(console, arguments);
-                    };
+            (() => {
+                // Create persistent console capture in localStorage if not exists
+                if (!localStorage.getItem('__devinConsoleState')) {
+                    console.log("DEBUG: Initializing persistent console capture");
+                    localStorage.setItem('__devinConsoleState', JSON.stringify({
+                        messages: [],
+                        initialized: false
+                    }));
                 }
                 
-                console.log = wrapConsole('log');
-                console.info = wrapConsole('info');
-                console.warn = wrapConsole('warn');
-                console.error = wrapConsole('error');
+                // Get current state
+                const state = JSON.parse(localStorage.getItem('__devinConsoleState'));
                 
-                window.__devinConsole.initialized = true;
-            }
-            
-            // Function to get messages
-            function getMessages() {
-                const messages = window.__devinConsole.messages;
-                console.log("DEVIN_CONSOLE_DUMP: " + JSON.stringify(messages));
-                return messages;
-            }
-            
-            // Get current messages
-            getMessages();
+                // Initialize console override if needed
+                if (!state.initialized) {
+                    console.log("DEBUG: Setting up console override");
+                    
+                    // Store original methods
+                    window.__devinOriginalConsole = {
+                        log: window.console.log.bind(console),
+                        info: window.console.info.bind(console),
+                        warn: window.console.warn.bind(console),
+                        error: window.console.error.bind(console)
+                    };
+                    
+                    // Helper to stringify any type of argument
+                    function safeStringify(arg) {
+                        if (typeof arg === 'undefined') return 'undefined';
+                        if (arg === null) return 'null';
+                        if (typeof arg === 'object') {
+                            try {
+                                return JSON.stringify(arg);
+                            } catch (e) {
+                                return '[Object]';
+                            }
+                        }
+                        return String(arg);
+                    }
+                    
+                    // Create wrapper for each console method
+                    function wrapConsole(method) {
+                        return function() {
+                            const timestamp = new Date().toISOString();
+                            const args = Array.from(arguments).map(safeStringify);
+                            const msg = {
+                                timestamp: timestamp,
+                                type: method,
+                                message: args.join(' ')
+                            };
+                            
+                            // Update stored messages
+                            const currentState = JSON.parse(localStorage.getItem('__devinConsoleState'));
+                            currentState.messages.push(msg);
+                            localStorage.setItem('__devinConsoleState', JSON.stringify(currentState));
+                            
+                            
+                            // Call original method
+                            window.__devinOriginalConsole[method].apply(console, arguments);
+                        };
+                    }
+                    
+                    // Override console methods
+                    console.log = wrapConsole('log');
+                    console.info = wrapConsole('info');
+                    console.warn = wrapConsole('warn');
+                    console.error = wrapConsole('error');
+                    
+                    // Update initialization state
+                    state.initialized = true;
+                    localStorage.setItem('__devinConsoleState', JSON.stringify(state));
+                    console.log("DEBUG: Console override initialized");
+                }
+                
+                // Return current state
+                return JSON.parse(localStorage.getItem('__devinConsoleState'));
+            })();
             </run_javascript_browser>''')
             
-            # Wait for messages to be processed
+            # Wait for JavaScript execution
             print('<wait for="browser" seconds="2"/>')
             
-            # Get console output
+            # Get raw console output
             print('<get_browser_console/>')
-            console_output = self._last_console_output or ""
+            raw_output = self._last_console_output or ""
             
-            if console_output:
-                # Try to extract messages from the DEVIN_CONSOLE_DUMP
+            if not raw_output:
+                self.logger.warning("Empty console output received")
+                return ""
+                
+            # Parse and process console messages
+            try:
+                import json
+                import re
+                
+                # Extract the localStorage state from console output
+                state_match = re.search(r'Return value: ({.*?})(?=\n|$)', raw_output)
+                if not state_match:
+                    self.logger.warning("No localStorage state found in console output")
+                    return raw_output
+                
+                # Parse the state
                 try:
-                    import json
-                    start_marker = "DEVIN_CONSOLE_DUMP: "
-                    if start_marker in console_output:
-                        messages_json = console_output[console_output.index(start_marker) + len(start_marker):]
-                        messages = json.loads(messages_json)
-                        return "\n".join(messages)
-                except Exception as e:
-                    self.logger.error(f"Error parsing console messages: {str(e)}")
-            
-            self.logger.warning("Failed to retrieve console messages")
-            return console_output
+                    state = json.loads(state_match.group(1))
+                except json.JSONDecodeError as e:
+                    self.logger.error(f"Failed to parse localStorage state: {e}")
+                    return raw_output
+                
+                if not state or not isinstance(state, dict):
+                    self.logger.warning("Invalid localStorage state format")
+                    return raw_output
+                
+                messages = state.get('messages', [])
+                if not messages:
+                    self.logger.warning("No messages found in localStorage")
+                    return raw_output
+                
+                # Format messages for output
+                formatted_messages = []
+                for msg in messages:
+                    try:
+                        if isinstance(msg, dict):
+                            # Handle structured message format
+                            timestamp = msg.get('timestamp', '')
+                            msg_type = msg.get('type', 'log')
+                            message = msg.get('message', str(msg))
+                            formatted_messages.append(f"[{timestamp}] {msg_type}: {message}")
+                        else:
+                            # Handle legacy or plain string messages
+                            formatted_messages.append(str(msg))
+                    except Exception as msg_err:
+                        self.logger.warning(f"Error formatting message: {msg_err}")
+                        formatted_messages.append(str(msg))
+                
+                result = "\n".join(formatted_messages)
+                self.logger.info(f"Successfully processed {len(formatted_messages)} messages")
+                return result
+                
+            except Exception as e:
+                self.logger.error(f"Error processing console output: {str(e)}")
+                return raw_output
+                
+        except Exception as e:
+            self.logger.error(f"Error in get_browser_console: {str(e)}")
+            return ""
             
         except Exception as e:
             self.logger.error(f"Error getting console output: {str(e)}")

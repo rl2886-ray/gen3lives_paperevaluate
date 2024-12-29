@@ -25,39 +25,22 @@ def scraper(setup_logging):
     print(f'<navigate_browser url="{test_url}"/>')
     print('<wait for="browser" seconds="5"/>')
     
-    # Initialize enhanced console capture
+    # Reset and initialize persistent console capture
     print('''<run_javascript_browser>
-    if (typeof window.__devinConsole === 'undefined') {
-        window.__devinConsole = {
+    (() => {
+        // Clear existing state
+        localStorage.removeItem('__devinConsoleState');
+        console.log("DEBUG: Test fixture setup - cleared console state");
+        
+        // Initialize fresh state
+        localStorage.setItem('__devinConsoleState', JSON.stringify({
             messages: [],
             initialized: false
-        };
+        }));
+        console.log("DEBUG: Test fixture setup - initialized fresh state");
         
-        // Create a more robust console override
-        const originalConsole = {
-            log: console.log,
-            info: console.info,
-            warn: console.warn,
-            error: console.error
-        };
-        
-        function wrapConsole(method) {
-            return function() {
-                const msg = Array.from(arguments).map(arg => 
-                    typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
-                ).join(' ');
-                window.__devinConsole.messages.push(msg);
-                originalConsole[method].apply(console, arguments);
-            };
-        }
-        
-        console.log = wrapConsole('log');
-        console.info = wrapConsole('info');
-        console.warn = wrapConsole('warn');
-        console.error = wrapConsole('error');
-        
-        window.__devinConsole.initialized = true;
-    }
+        return JSON.parse(localStorage.getItem('__devinConsoleState'));
+    })();
     </run_javascript_browser>''')
     print('<wait for="browser" seconds="2"/>')
     
