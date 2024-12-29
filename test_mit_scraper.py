@@ -25,18 +25,34 @@ def scraper(setup_logging):
     print(f'<navigate_browser url="{test_url}"/>')
     print('<wait for="browser" seconds="5"/>')
     
-    # Initialize console capture
+    # Initialize console capture with robust verification
     scraper.initialize_console_capture()
-    print('<wait for="browser" seconds="2"/>')
     
-    # Verify console initialization
+    # Test message capture with verification
     print('''<run_javascript_browser>
     (() => {
-        console.log("Verifying console initialization");
-        return window.__consoleInitialized === true;
+        // Verify console state
+        const state = {
+            initialized: window.__consoleInitialized === true,
+            hasMessages: Array.isArray(window.__consoleMessages),
+            hasOriginalConsole: typeof window.__originalConsole === 'object',
+            consoleWrapped: console.log.toString().includes('wrapConsole')
+        };
+        
+        // Log test messages
+        console.log("TEST: Console verification message 1");
+        console.info("TEST: Console verification message 2");
+        console.warn("TEST: Console verification message 3");
+        
+        // Return detailed state
+        return {
+            ...state,
+            messageCount: window.__consoleMessages.length,
+            messages: window.__consoleMessages
+        };
     })();
     </run_javascript_browser>''')
-    print('<wait for="browser" seconds="1"/>')
+    print('<wait for="browser" seconds="2"/>')
     
     # Check document readiness
     print('''<run_javascript_browser>

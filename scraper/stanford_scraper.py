@@ -3,10 +3,28 @@ Stanford-specific scraper implementation
 """
 import json
 import logging
+import re
 from typing import Dict, List, Optional
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from .base_scraper import BaseScraper
+
+def parse_console_json(console_output: str) -> Optional[Dict]:
+    """Parse JSON from console output"""
+    try:
+        # Find JSON-like strings in console output
+        json_matches = re.findall(r'(\{.*\}|\[.*\])', console_output, re.DOTALL)
+        if not json_matches:
+            return None
+        # Try to parse each match, return the last valid one
+        for match in reversed(json_matches):
+            try:
+                return json.loads(match)
+            except json.JSONDecodeError:
+                continue
+        return None
+    except Exception:
+        return None
 
 class StanfordScraper(BaseScraper):
     # Define STEM-related keywords for filtering programs
@@ -65,7 +83,7 @@ class StanfordScraper(BaseScraper):
         </screenshot_browser>''')
         
         # Debug page state
-        js_result = self.run_javascript('''
+        print('''<run_javascript_browser>
         const pageState = {
             filters: Array.from(document.querySelectorAll('input[type="checkbox"]')).map(f => ({
                 id: f.getAttribute('devinid'),
@@ -78,11 +96,14 @@ class StanfordScraper(BaseScraper):
                 expanded: b.getAttribute('aria-expanded')
             }))
         };
-        return JSON.stringify(pageState);
-        ''')
+        console.log(JSON.stringify(pageState));
+        </run_javascript_browser>''')
         
-        try:
-            state_data = json.loads(js_result)
+        # Get console output and parse JSON
+        console_output = self.get_browser_console()
+        state_data = parse_console_json(console_output)
+        
+        if state_data:
             self.logger.info(f"Found {len(state_data.get('filters', []))} filters and {len(state_data.get('buttons', []))} buttons")
             
             # Log filter details for debugging
@@ -92,10 +113,9 @@ class StanfordScraper(BaseScraper):
             # Log button details for debugging
             for b in state_data.get('buttons', []):
                 self.logger.debug(f"Button: {b.get('text')} (id={b.get('id')}, expanded={b.get('expanded')})")
-                
-        except json.JSONDecodeError as e:
-            self.logger.error(f"Failed to parse page state: {e}")
-            self.logger.debug(f"Raw JavaScript result: {js_result}")
+        else:
+            self.logger.error("Failed to parse page state")
+            self.logger.debug(f"Raw console output: {console_output}")
             
         # Take a screenshot to verify page state
         print('''<screenshot_browser>
@@ -131,18 +151,21 @@ class StanfordScraper(BaseScraper):
         time.sleep(5)  # Increased wait for expansion
         
         # Debug expanded state
-        js_result = self.run_javascript('''
+        print('''<run_javascript_browser>
         const expandedState = {
             totalButtons: document.querySelectorAll('button').length,
             expandedButtons: document.querySelectorAll('button[aria-expanded="true"]').length,
             visibleH2s: document.querySelectorAll('h2').length,
             programButtons: Array.from(document.querySelectorAll('button')).filter(b => b.querySelector('h2')).length
         };
-        return JSON.stringify(expandedState);
-        ''')
+        console.log(JSON.stringify(expandedState));
+        </run_javascript_browser>''')
         
-        try:
-            state_data = json.loads(js_result)
+        # Get console output and parse JSON
+        console_output = self.get_browser_console()
+        state_data = parse_console_json(console_output)
+        
+        if state_data:
             self.logger.info(
                 f"Found {state_data.get('totalButtons', 0)} total buttons, "
                 f"{state_data.get('expandedButtons', 0)} expanded, "
@@ -151,10 +174,9 @@ class StanfordScraper(BaseScraper):
             
             if state_data.get('programButtons', 0) == 0:
                 self.logger.warning("No program buttons found after expansion")
-                
-        except json.JSONDecodeError as e:
-            self.logger.error(f"Failed to parse expanded state: {e}")
-            self.logger.debug(f"Raw JavaScript result: {js_result}")
+        else:
+            self.logger.error("Failed to parse expanded state")
+            self.logger.debug(f"Raw console output: {console_output}")
             
         # Take a screenshot to verify expanded state
         print('''<screenshot_browser>
@@ -164,7 +186,7 @@ class StanfordScraper(BaseScraper):
         
         # Extract program information using JavaScript
         self.logger.info("Extracting program information")
-        js_result = self.run_javascript('''
+        print('''<run_javascript_browser>
         const programs = Array.from(document.querySelectorAll('button')).map(button => {
             const h2 = button.querySelector('h2');
             if (!h2) return null;
@@ -182,26 +204,24 @@ class StanfordScraper(BaseScraper):
                 buttonId: button.getAttribute('devinid')
             };
         }).filter(p => p !== null);
-        return JSON.stringify(programs);
-        ''')
+        console.log(JSON.stringify(programs));
+        </run_javascript_browser>''')
         
-        try:
-            programs = json.loads(js_result)
-            if not programs:
-                self.logger.warning("No MS programs found")
-                return []
-                
-            self.logger.info(f"Found {len(programs)} MS programs")
-            for program in programs:
-                self.logger.info(f"Found program: {program.get('title', 'Unknown')}")
-                self.logger.debug(f"Program details: {json.dumps(program, indent=2)}")
-                
-            return programs
-            
-        except json.JSONDecodeError as e:
-            self.logger.error(f"Failed to parse program data: {e}")
-            self.logger.debug(f"Raw JavaScript result: {js_result}")
+        # Get console output and parse JSON
+        console_output = self.get_browser_console()
+        programs = parse_console_json(console_output)
+        
+        if not programs:
+            self.logger.warning("No MS programs found")
+            self.logger.debug(f"Raw console output: {console_output}")
             return []
+            
+        self.logger.info(f"Found {len(programs)} MS programs")
+        for program in programs:
+            self.logger.info(f"Found program: {program.get('title', 'Unknown')}")
+            self.logger.debug(f"Program details: {json.dumps(program, indent=2)}")
+            
+        return programs
             
         # Take a screenshot to verify program extraction
         print('''<screenshot_browser>
@@ -484,7 +504,7 @@ class StanfordScraper(BaseScraper):
                 // Find course descriptions
                 document.querySelectorAll('p').forEach(p => {
                     const text = p.textContent;
-                    const match = text.match(/^([A-Z]+[ ]*[0-9]+[A-Z]*):\s*(.+)/);
+                    const match = text.match(/^([A-Z]+[ ]*[0-9]+[A-Z]*):[ ]*(.+)/);
                     if (match) {
                         courseInfo.descriptions[match[1]] = match[2];
                     }
@@ -492,17 +512,16 @@ class StanfordScraper(BaseScraper):
                 
                 console.log(JSON.stringify(courseInfo, null, 2));
                 </run_javascript_browser>''')
-                print('<get_browser_console/>')
-                
-                # Parse course information from console output
+                # Get console output and parse JSON
                 console_output = self.get_browser_console()
-                try:
-                    course_data = json.loads(console_output.strip())
-                    program_info['courses']['core_courses'] = course_data.get('core', [])
-                    program_info['courses']['elective_courses'] = course_data.get('elective', [])
-                    program_info['courses']['course_descriptions'] = course_data.get('descriptions', {})
-                    program_info['courses']['concentration_tracks'] = course_data.get('tracks', [])
-                except json.JSONDecodeError:
+                course_info = parse_console_json(console_output)
+                
+                if course_info:
+                    program_info['courses']['core_courses'] = course_info.get('core', [])
+                    program_info['courses']['elective_courses'] = course_info.get('elective', [])
+                    program_info['courses']['course_descriptions'] = course_info.get('descriptions', {})
+                    program_info['courses']['concentration_tracks'] = course_info.get('tracks', [])
+                else:
                     self.logger.error("Failed to parse course information from bulletin")
             
             # Generate program_id

@@ -154,19 +154,28 @@ class BaseScraper:
             return None
             
     def initialize_console_capture(self):
-        """Initialize the console capture mechanism"""
+        """Initialize the console capture mechanism with persistence and verification"""
+        # First clear any existing state
+        print('''<run_javascript_browser>
+        delete window.__consoleInitialized;
+        delete window.__consoleMessages;
+        delete window.__originalConsole;
+        </run_javascript_browser>''')
+        print('<wait for="browser" seconds="1"/>')
+        
+        # Initialize with persistence
         print('''<run_javascript_browser>
         (() => {
+            // Skip if already initialized
             if (window.__consoleInitialized) {
+                console.log("Console capture already initialized");
                 return true;
             }
             
             try {
-                // Initialize message storage
+                // Initialize message storage with persistence
                 window.__consoleMessages = [];
-                
-                // Store original methods
-                const originalConsole = {
+                window.__originalConsole = {
                     log: console.log.bind(console),
                     info: console.info.bind(console),
                     warn: console.warn.bind(console),
@@ -181,7 +190,7 @@ class BaseScraper:
                         try {
                             return JSON.stringify(arg);
                         } catch (e) {
-                            return '[Object]';
+                            return String(arg);
                         }
                     }
                     return String(arg);
@@ -194,22 +203,29 @@ class BaseScraper:
                             const args = Array.from(arguments).map(safeStringify);
                             const msg = `${method}: ${args.join(' ')}`;
                             window.__consoleMessages.push(msg);
-                            originalConsole[method].apply(console, arguments);
+                            window.__originalConsole[method].apply(console, arguments);
                         } catch (e) {
-                            originalConsole.error('Error in console wrapper:', e);
+                            window.__originalConsole.error('Error in console wrapper:', e);
                         }
                     };
                 }
                 
-                // Override console methods
-                console.log = wrapConsole('log');
-                console.info = wrapConsole('info');
-                console.warn = wrapConsole('warn');
-                console.error = wrapConsole('error');
+                // Override console methods with persistence
+                Object.defineProperties(console, {
+                    log: { value: wrapConsole('log'), configurable: true, writable: true },
+                    info: { value: wrapConsole('info'), configurable: true, writable: true },
+                    warn: { value: wrapConsole('warn'), configurable: true, writable: true },
+                    error: { value: wrapConsole('error'), configurable: true, writable: true }
+                });
                 
-                window.__consoleInitialized = true;
-                console.log("Console capture initialized");
+                // Mark as initialized with persistence
+                Object.defineProperty(window, '__consoleInitialized', {
+                    value: true,
+                    configurable: true,
+                    writable: false
+                });
                 
+                console.log("Console capture initialized successfully");
                 return true;
             } catch (e) {
                 console.error("ERROR: Failed to initialize console capture:", e);
@@ -217,7 +233,22 @@ class BaseScraper:
             }
         })();
         </run_javascript_browser>''')
-        print('<wait for="browser" seconds="1"/>')
+        print('<wait for="browser" seconds="2"/>')
+        
+        # Verify initialization
+        print('''<run_javascript_browser>
+        (() => {
+            const state = {
+                initialized: window.__consoleInitialized === true,
+                hasMessages: Array.isArray(window.__consoleMessages),
+                hasOriginalConsole: typeof window.__originalConsole === 'object',
+                consoleWrapped: console.log.toString().includes('wrapConsole')
+            };
+            console.log("CONSOLE_STATE:" + JSON.stringify(state));
+            return state;
+        })();
+        </run_javascript_browser>''')
+        print('<wait for="browser" seconds="2"/>')
         
     def get_browser_console(self) -> str:
         """Get browser console output"""
@@ -233,10 +264,16 @@ class BaseScraper:
                 const messages = window.__consoleMessages || [];
                 window.__consoleMessages = []; // Clear after reading
                 
+                // Log current state for debugging
+                console.log("DEBUG: Console state before capture");
+                console.log("DEBUG: __consoleInitialized =", window.__consoleInitialized);
+                console.log("DEBUG: Number of messages =", messages.length);
                 
                 console.log("DEVIN_CONSOLE_START");
                 console.log(JSON.stringify({
-                    messages: messages
+                    messages: messages,
+                    initialized: window.__consoleInitialized,
+                    messageCount: messages.length
                 }));
                 console.log("DEVIN_CONSOLE_END");
                 
@@ -247,10 +284,55 @@ class BaseScraper:
             # Wait for JavaScript execution
             print('<wait for="browser" seconds="2"/>')
             
-            # Get console output
+            # Get console output from system
             print('<get_browser_console/>')
+            # Wait for output to be available
+            print('<wait for="browser" seconds="1"/>')
+            
+            # Store the output from the system command
             raw_output = self._last_console_output or ""
-            self._last_console_output = ""  # Reset after reading
+            self._last_console_output = ""  # Clear after reading
+            
+            self.logger.debug("Processing console output...")
+            self.logger.debug(f"Raw output length: {len(raw_output)}")
+            
+            # First try parsing with parse_console_json
+            parsed_output = self.parse_console_json(raw_output, "DEVIN_CONSOLE_START", "DEVIN_CONSOLE_END")
+            if parsed_output and isinstance(parsed_output, list) and len(parsed_output) > 0:
+                if isinstance(parsed_output[0], dict) and 'messages' in parsed_output[0]:
+                    messages = parsed_output[0]['messages']
+                    if messages:
+                        self.logger.debug(f"Found {len(messages)} messages")
+                        return '\n'.join(str(msg) for msg in messages)
+            
+            # Fallback: try to find any console messages
+            self.logger.debug("Falling back to line-by-line parsing...")
+            messages = []
+            for line in raw_output.split('\n'):
+                line = line.strip()
+                if any(line.startswith(prefix) for prefix in ('console.log:', 'console.info:', 'console.warn:', 'console.error:')):
+                    msg = line.split(':', 1)[1].strip()
+                    if msg:
+                        messages.append(msg)
+                        self.logger.debug(f"Found console message: {msg}")
+                elif line.startswith('Return value:'):
+                    self.logger.debug("Skipping return value line")
+                    continue
+                elif line and not line.startswith(('DEBUG:', 'INFO:', 'WARNING:', 'ERROR:')):
+                    messages.append(line)
+                    self.logger.debug(f"Found raw message: {line}")
+            
+            if messages:
+                self.logger.debug(f"Returning {len(messages)} messages")
+                return '\n'.join(messages)
+            
+            self.logger.warning("No console messages found in output")
+            self.logger.debug(f"Raw console output: {raw_output}")
+            return raw_output
+                
+        except Exception as e:
+            self.logger.error(f"Error in get_browser_console: {str(e)}")
+            return ""
             
             self.logger.debug("Processing console output...")
             self.logger.debug(f"Raw output length: {len(raw_output)}")

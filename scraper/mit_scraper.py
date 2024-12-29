@@ -19,7 +19,8 @@ class MITScraper(TemplateScraper):
         )
         self.university['location'] = "Cambridge, Massachusetts"
         self.university['type'] = "Private"
-        self.base_url = "https://oge.mit.edu/graduate-admissions/programs/"
+        self.base_url = "https://oge.mit.edu"
+        self.programs_url = "https://oge.mit.edu/graduate-admissions/programs/"
     
     # STEM program detection keywords
     STEM_KEYWORDS = [
@@ -224,8 +225,8 @@ class MITScraper(TemplateScraper):
                                 console.log(`Found STEM program: ${title}`);
                                 try {
                                     // Extract department and degree type from title
-                                    const departmentMatch = title.match(/^([^(]+?)(?:\s+\(|$)/);
-                                    const degreeMatch = title.match(/\(([\w\s,]+)\)/);
+                                    const departmentMatch = title.match(/^([^(]+?)(?:[ ]+\\(|$)/);
+                                    const degreeMatch = title.match(/\\(([^)]+)\\)/);
                                     
                                     programs.push({
                                         title: title,
@@ -365,18 +366,259 @@ class MITScraper(TemplateScraper):
         # Navigate to program page with enhanced error handling
         print(f'<navigate_browser url="{program_data["url"]}"/>')
         
-        # Wait for page load with content verification
+        # Wait for page load with improved content verification
         content_selectors = [
             '.entry-content',  # Main content container
-            'h1, h2, h3',     # Section headers
+            'h1, h2, h3, h4',  # Section headers
             'p',              # Paragraphs
-            '.program-content, .department-content'  # Alternative content containers
+            '.program-content, .department-content, article'  # Alternative content containers
         ]
-        content_check = ', '.join(content_selectors)
-        
-        if not self.wait_for_browser(15, check_interval=2, content_check=content_check):
+        # Use first selector as primary, others as fallbacks
+        for selector in content_selectors:
+            if self.wait_for_browser(10, check_interval=1, content_check=selector):
+                self.logger.info(f"Page loaded successfully with selector: {selector}")
+                break
+        else:
             self.logger.error(f"Failed to load program page or verify content: {program_data['url']}")
             print('<screenshot_browser>\nChecking failed program page load\n</screenshot_browser>')
+            return self._create_minimal_program_info(program_data)
+            
+        # Additional verification after successful load
+        print('''<run_javascript_browser>
+        console.log("Starting program info extraction...");
+        
+        // Helper function to safely match numbers
+        function matchNumber(text, pattern) {
+            return text.match(new RegExp(pattern));
+        }
+        
+        function extractProgramInfo() {
+            const info = {
+                program_info: {
+                    title: document.querySelector('h1')?.textContent?.trim() || '',
+                    description: Array.from(document.querySelectorAll('p'))
+                        .slice(0, 3)
+                        .map(p => p.textContent.trim())
+                        .join(' '),
+                    department: document.querySelector('.department-name')?.textContent?.trim() || '',
+                    website: window.location.href
+                },
+                admission_requirements: {
+                    gre_required: null,
+                    english_requirements: null,
+                    minimum_gpa: null,
+                    other_requirements: []
+                },
+                financial_info: {
+                    tuition: null,
+                    financial_aid: [],
+                    scholarships: []
+                },
+                program_features: {
+                    duration: null,
+                    format: null,
+                    specializations: [],
+                    research_areas: []
+                },
+                courses: {
+                    core_courses: [],
+                    electives: [],
+                    total_credits: null
+                }
+            };
+            
+            // Extract admission requirements
+            const admissionSection = Array.from(document.querySelectorAll('h2, h3, h4'))
+                .find(h => h.textContent.toLowerCase().includes('admission') || 
+                          h.textContent.toLowerCase().includes('requirements'));
+                          
+            if (admissionSection) {
+                const requirements = [];
+                let current = admissionSection.nextElementSibling;
+                while (current && !['H2', 'H3', 'H4'].includes(current.tagName)) {
+                    if (current.tagName === 'P' || current.tagName === 'LI') {
+                        const text = current.textContent.trim();
+                        requirements.push(text);
+                        
+                        // Check for specific requirements
+                        if (text.toLowerCase().includes('gre')) {
+                            info.admission_requirements.gre_required = !text.toLowerCase().includes('not required');
+                        }
+                        if (text.toLowerCase().includes('toefl') || text.toLowerCase().includes('ielts')) {
+                            info.admission_requirements.english_requirements = text;
+                        }
+                        if (text.toLowerCase().includes('gpa')) {
+                            const gpaMatch = text.match(/([0-9]+[.]?[0-9]*)/);
+                            if (gpaMatch) {
+                                info.admission_requirements.minimum_gpa = parseFloat(gpaMatch[1]);
+                            }
+                        }
+                    }
+                    current = current.nextElementSibling;
+                }
+                info.admission_requirements.other_requirements = requirements;
+            }
+            
+            // Extract financial information
+            const financialSection = Array.from(document.querySelectorAll('h2, h3, h4'))
+                .find(h => h.textContent.toLowerCase().includes('financial') || 
+                          h.textContent.toLowerCase().includes('tuition') ||
+                          h.textContent.toLowerCase().includes('cost'));
+                          
+            if (financialSection) {
+                const financialInfo = [];
+                let current = financialSection.nextElementSibling;
+                while (current && !['H2', 'H3', 'H4'].includes(current.tagName)) {
+                    if (current.tagName === 'P' || current.tagName === 'LI') {
+                        const text = current.textContent.trim();
+                        financialInfo.push(text);
+                        
+                        // Check for tuition information
+                        if (text.toLowerCase().includes('tuition')) {
+                            const costMatch = text.match(/[$][0-9,]+/);
+                            if (costMatch) {
+                                info.financial_info.tuition = costMatch[0];
+                            }
+                        }
+                        // Check for financial aid/scholarships
+                        if (text.toLowerCase().includes('fellowship') || 
+                            text.toLowerCase().includes('scholarship')) {
+                            info.financial_info.scholarships.push(text);
+                        }
+                        if (text.toLowerCase().includes('financial aid') || 
+                            text.toLowerCase().includes('funding')) {
+                            info.financial_info.financial_aid.push(text);
+                        }
+                    }
+                    current = current.nextElementSibling;
+                }
+            }
+            
+            // Extract program features
+            const featuresSection = Array.from(document.querySelectorAll('h2, h3, h4'))
+                .find(h => h.textContent.toLowerCase().includes('program') || 
+                          h.textContent.toLowerCase().includes('research') ||
+                          h.textContent.toLowerCase().includes('specialization'));
+                          
+            if (featuresSection) {
+                let current = featuresSection.nextElementSibling;
+                while (current && !['H2', 'H3', 'H4'].includes(current.tagName)) {
+                    if (current.tagName === 'P' || current.tagName === 'LI') {
+                        const text = current.textContent.trim();
+                        
+                        // Check for duration
+                        if (text.toLowerCase().includes('year') || text.toLowerCase().includes('semester')) {
+                            info.program_features.duration = text;
+                        }
+                        // Check for format
+                        if (text.toLowerCase().includes('online') || 
+                            text.toLowerCase().includes('campus') || 
+                            text.toLowerCase().includes('hybrid')) {
+                            info.program_features.format = text;
+                        }
+                        // Check for specializations and research areas
+                        if (text.toLowerCase().includes('specialization') || 
+                            text.toLowerCase().includes('concentration')) {
+                            info.program_features.specializations.push(text);
+                        }
+                        if (text.toLowerCase().includes('research')) {
+                            info.program_features.research_areas.push(text);
+                        }
+                    }
+                    current = current.nextElementSibling;
+                }
+            }
+            
+            // Extract course information
+            const coursesSection = Array.from(document.querySelectorAll('h2, h3, h4'))
+                .find(h => h.textContent.toLowerCase().includes('course') || 
+                          h.textContent.toLowerCase().includes('curriculum'));
+                          
+            if (coursesSection) {
+                let current = coursesSection.nextElementSibling;
+                while (current && !['H2', 'H3', 'H4'].includes(current.tagName)) {
+                    if (current.tagName === 'P' || current.tagName === 'LI') {
+                        const text = current.textContent.trim();
+                        
+                        // Check for core courses
+                        if (text.toLowerCase().includes('core') || 
+                            text.toLowerCase().includes('required')) {
+                            info.courses.core_courses.push(text);
+                        }
+                        // Check for electives
+                        if (text.toLowerCase().includes('elective')) {
+                            info.courses.electives.push(text);
+                        }
+                        // Check for total credits
+                        if (text.toLowerCase().includes('credit')) {
+                            const creditMatch = text.match(/([0-9]+)[ ]*credits?/i);
+                            if (creditMatch) {
+                                info.courses.total_credits = parseInt(creditMatch[1]);
+                            }
+                        }
+                    }
+                    current = current.nextElementSibling;
+                }
+            }
+            
+            return info;
+        }
+        
+        // Execute extraction and log results
+        const programInfo = extractProgramInfo();
+        console.log("PROGRAM_INFO_START");
+        console.log(JSON.stringify(programInfo, null, 2));
+        console.log("PROGRAM_INFO_END");
+        </run_javascript_browser>''')
+        
+        # Wait for JavaScript execution and get results
+        self.wait_for_browser(5)
+        console_output = self.get_browser_console()
+        
+        if not console_output:
+            self.logger.error("Failed to get program information from console")
+            return self._create_minimal_program_info(program_data)
+            
+        # Extract program information from console output
+        start_marker = "PROGRAM_INFO_START"
+        end_marker = "PROGRAM_INFO_END"
+        start_idx = console_output.find(start_marker)
+        end_idx = console_output.find(end_marker)
+        
+        if start_idx == -1 or end_idx == -1:
+            self.logger.error("Could not find program info markers in console output")
+            return self._create_minimal_program_info(program_data)
+            
+        try:
+            json_text = console_output[start_idx + len(start_marker):end_idx].strip()
+            extracted_info = json.loads(json_text)
+            
+            # Merge extracted info with basic program data
+            result = {
+                'university_info': {
+                    'name': self.university['name'],
+                    'rank': self.university['rank'],
+                    'location': self.university['location'],
+                    'type': self.university['type']
+                },
+                'program_info': {
+                    **program_data,
+                    **extracted_info['program_info']
+                },
+                'admission_requirements': extracted_info['admission_requirements'],
+                'financial_info': extracted_info['financial_info'],
+                'program_features': extracted_info['program_features'],
+                'courses': extracted_info['courses']
+            }
+            
+            self.logger.info(f"Successfully extracted program information for {program_data['title']}")
+            return result
+            
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Failed to parse program information JSON: {e}")
+            return self._create_minimal_program_info(program_data)
+        except Exception as e:
+            self.logger.error(f"Error processing program information: {e}")
             return self._create_minimal_program_info(program_data)
             
     def _create_minimal_program_info(self, program_data: Dict) -> Dict:
@@ -578,13 +820,13 @@ class MITScraper(TemplateScraper):
                         const requirements = [];
                         
                         // Check for TOEFL scores
-                        const toeflMatch = englishText.match(/TOEFL.*?(\d+)/i);
+                        const toeflMatch = englishText.match(/TOEFL.*?([0-9]+)/i);
                         if (toeflMatch) {
                             requirements.push(`TOEFL: ${toeflMatch[1]}`);
                         }
                         
                         // Check for IELTS scores
-                        const ieltsMatch = englishText.match(/IELTS.*?(\d+(?:\.\d+)?)/i);
+                        const ieltsMatch = englishText.match(/IELTS.*?([0-9]+(?:[.][0-9]+)?)/i);
                         if (ieltsMatch) {
                             requirements.push(`IELTS: ${ieltsMatch[1]}`);
                         }
@@ -602,10 +844,10 @@ class MITScraper(TemplateScraper):
                         
                         // Look for specific GPA patterns
                         const gpaPatterns = [
-                            /minimum GPA.*?(\d+\.\d+)/i,
-                            /GPA.*?(\d+\.\d+).*?minimum/i,
-                            /(\d+\.\d+).*?GPA/i,
-                            /grade point average.*?(\d+\.\d+)/i
+                            /minimum GPA.*?([0-9]+[.][0-9]+)/i,
+                            /GPA.*?([0-9]+[.][0-9]+).*?minimum/i,
+                            /([0-9]+[.][0-9]+).*?GPA/i,
+                            /grade point average.*?([0-9]+[.][0-9]+)/i
                         ];
                         
                         for (const pattern of gpaPatterns) {
@@ -660,7 +902,7 @@ class MITScraper(TemplateScraper):
                         });
                         
                         // Look for currency amounts
-                        const amounts = tuitionText.match(/\$[\d,]+(?:\.\d{2})?/g);
+                        const amounts = tuitionText.match(/[$][0-9,]+(?:[.][0-9]{2})?/g);
                         if (amounts) {
                             return amounts.join('; ');
                         }
@@ -809,7 +1051,7 @@ class MITScraper(TemplateScraper):
                         listItems.forEach(item => {
                             const text = item.textContent;
                             // Look for course codes (e.g., CS 101, EECS-101)
-                            if (/[A-Z]{2,4}[-\s]?\d{3}/i.test(text)) {
+                            if (/[A-Z]{2,4}[-\x20]?[0-9]{3}/i.test(text)) {
                                 courses.push(text.trim());
                             }
                         });
@@ -833,7 +1075,7 @@ class MITScraper(TemplateScraper):
                         listItems.forEach(item => {
                             const text = item.textContent.toLowerCase();
                             if ((text.includes('elective') || text.includes('optional')) &&
-                                /[A-Z]{2,4}[-\s]?\d{3}/i.test(item.textContent)) {
+                                /[A-Z]{2,4}[-\x20]?[0-9]{3}/i.test(item.textContent)) {
                                 electives.push(item.textContent.trim());
                             }
                         });
@@ -846,12 +1088,12 @@ class MITScraper(TemplateScraper):
                             maxLength: 500
                         });
                         // Look for numbers followed by "credits" or "units"
-                        const creditMatch = creditText.match(/(\d+)(?:\s*(?:credit|unit|hour)s?)/i);
+                        const creditMatch = creditText.match(/([0-9]+)(?:[ ]*(?:credit|unit|hour)s?)/i);
                         if (creditMatch) {
                             return parseInt(creditMatch[1]);
                         }
                         // Fallback to any number in the text
-                        const numberMatch = creditText.match(/(\d+)/);
+                        const numberMatch = creditText.match(/([0-9]+)/);
                         return numberMatch ? parseInt(numberMatch[1]) : null;
                     })()
                 }
