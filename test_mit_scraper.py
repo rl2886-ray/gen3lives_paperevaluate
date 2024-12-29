@@ -29,6 +29,15 @@ def scraper(setup_logging):
     scraper.initialize_console_capture()
     print('<wait for="browser" seconds="2"/>')
     
+    # Verify console initialization
+    print('''<run_javascript_browser>
+    (() => {
+        console.log("Verifying console initialization");
+        return window.__consoleInitialized === true;
+    })();
+    </run_javascript_browser>''')
+    print('<wait for="browser" seconds="1"/>')
+    
     # Check document readiness
     print('''<run_javascript_browser>
     (() => {

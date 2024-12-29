@@ -233,6 +233,7 @@ class BaseScraper:
                 const messages = window.__consoleMessages || [];
                 window.__consoleMessages = []; // Clear after reading
                 
+                
                 console.log("DEVIN_CONSOLE_START");
                 console.log(JSON.stringify({
                     messages: messages
@@ -251,62 +252,42 @@ class BaseScraper:
             raw_output = self._last_console_output or ""
             self._last_console_output = ""  # Reset after reading
             
-            try:
-                self.logger.debug("Processing console output...")
-                self.logger.debug(f"Raw output length: {len(raw_output)}")
-                
-                # Extract messages between markers
-                start_marker = "DEVIN_CONSOLE_START"
-                end_marker = "DEVIN_CONSOLE_END"
-                start_idx = raw_output.find(start_marker)
-                end_idx = raw_output.find(end_marker)
-                
-                if start_idx != -1 and end_idx != -1:
-                    json_text = raw_output[start_idx + len(start_marker):end_idx].strip()
-                    try:
-                        console_data = json.loads(json_text)
-                        self.logger.debug(f"Parsed console data: {console_data}")
-                        
-                        if isinstance(console_data, dict):
-                            if not console_data.get('initialized', False):
-                                self.logger.error("Console capture not initialized")
-                            if not console_data.get('working', False):
-                                self.logger.warning("Console capture reported as not working")
-                            if 'messages' in console_data:
-                                messages = console_data['messages']
-                                self.logger.debug(f"Found {len(messages)} messages")
-                                return '\n'.join(str(msg) for msg in messages)
-                    except json.JSONDecodeError as e:
-                        self.logger.error(f"Failed to parse console JSON: {e}")
-                
-                # Fallback: try to find any console messages
-                self.logger.debug("Falling back to line-by-line parsing...")
-                messages = []
-                for line in raw_output.split('\n'):
-                    line = line.strip()
-                    if any(line.startswith(prefix) for prefix in ('console.log:', 'console.info:', 'console.warn:', 'console.error:')):
-                        msg = line.split(':', 1)[1].strip()
-                        if msg:
-                            messages.append(msg)
-                            self.logger.debug(f"Found console message: {msg}")
-                    elif line.startswith('Return value:'):
-                        self.logger.debug("Skipping return value line")
-                        continue
-                    elif line and not line.startswith(('DEBUG:', 'INFO:', 'WARNING:', 'ERROR:')):
-                        messages.append(line)
-                        self.logger.debug(f"Found raw message: {line}")
-                
-                if messages:
-                    self.logger.debug(f"Returning {len(messages)} messages")
-                    return '\n'.join(messages)
-                
-                self.logger.warning("No console messages found in output")
-                self.logger.debug(f"Raw console output: {raw_output}")
-                return raw_output
-            except Exception as e:
-                self.logger.error(f"Error parsing console output: {e}")
-                self.logger.debug(f"Raw console output: {raw_output}")
-                return raw_output
+            self.logger.debug("Processing console output...")
+            self.logger.debug(f"Raw output length: {len(raw_output)}")
+            
+            # First try parsing with parse_console_json
+            parsed_output = self.parse_console_json(raw_output, "DEVIN_CONSOLE_START", "DEVIN_CONSOLE_END")
+            if parsed_output and isinstance(parsed_output, list) and len(parsed_output) > 0:
+                if isinstance(parsed_output[0], dict) and 'messages' in parsed_output[0]:
+                    messages = parsed_output[0]['messages']
+                    if messages:
+                        self.logger.debug(f"Found {len(messages)} messages")
+                        return '\n'.join(str(msg) for msg in messages)
+            
+            # Fallback: try to find any console messages
+            self.logger.debug("Falling back to line-by-line parsing...")
+            messages = []
+            for line in raw_output.split('\n'):
+                line = line.strip()
+                if any(line.startswith(prefix) for prefix in ('console.log:', 'console.info:', 'console.warn:', 'console.error:')):
+                    msg = line.split(':', 1)[1].strip()
+                    if msg:
+                        messages.append(msg)
+                        self.logger.debug(f"Found console message: {msg}")
+                elif line.startswith('Return value:'):
+                    self.logger.debug("Skipping return value line")
+                    continue
+                elif line and not line.startswith(('DEBUG:', 'INFO:', 'WARNING:', 'ERROR:')):
+                    messages.append(line)
+                    self.logger.debug(f"Found raw message: {line}")
+            
+            if messages:
+                self.logger.debug(f"Returning {len(messages)} messages")
+                return '\n'.join(messages)
+            
+            self.logger.warning("No console messages found in output")
+            self.logger.debug(f"Raw console output: {raw_output}")
+            return raw_output
                 
         except Exception as e:
             self.logger.error(f"Error in get_browser_console: {str(e)}")
@@ -325,13 +306,13 @@ class BaseScraper:
         try:
             self.logger.debug(f"Running JavaScript: {script[:200]}...")
             
-            # Reset console state
+            # Clear previous messages
             print('''<run_javascript_browser>
             (() => {
-                window.__devinConsole = {
-                    messages: [],
-                    initialized: false
-                };
+                if (!window.__consoleInitialized) {
+                    return false;
+                }
+                window.__consoleMessages = [];
                 return true;
             })();
             </run_javascript_browser>''')
