@@ -154,33 +154,47 @@ class BaseScraper:
             return None
             
     def get_browser_console(self) -> str:
-        """Get the browser console output with enhanced error handling and message preservation"""
+        """Get browser console output using localStorage for persistence"""
         try:
-            # Initialize or verify console capture
+            # Initialize console capture with localStorage
             print('''<run_javascript_browser>
             (() => {
-                // Create persistent console capture in localStorage if not exists
-                if (!localStorage.getItem('__devinConsoleState')) {
-                    console.log("DEBUG: Initializing persistent console capture");
-                    localStorage.setItem('__devinConsoleState', JSON.stringify({
-                        messages: [],
-                        initialized: false
-                    }));
-                }
-                
-                // Get current state
-                const state = JSON.parse(localStorage.getItem('__devinConsoleState'));
-                
-                // Initialize console override if needed
-                if (!state.initialized) {
-                    console.log("DEBUG: Setting up console override");
+                try {
+                    // Initialize localStorage if needed
+                    if (!localStorage.getItem('devinConsoleMessages')) {
+                        localStorage.setItem('devinConsoleMessages', JSON.stringify([]));
+                    }
+                    
+                    // Helper functions for localStorage
+                    const consoleStorage = {
+                        getMessages: () => {
+                            try {
+                                return JSON.parse(localStorage.getItem('devinConsoleMessages')) || [];
+                            } catch (e) {
+                                console.error('Error reading messages:', e);
+                                return [];
+                            }
+                        },
+                        addMessage: (msg) => {
+                            try {
+                                const messages = consoleStorage.getMessages();
+                                messages.push(msg);
+                                localStorage.setItem('devinConsoleMessages', JSON.stringify(messages));
+                            } catch (e) {
+                                console.error('Error adding message:', e);
+                            }
+                        },
+                        clear: () => {
+                            localStorage.setItem('devinConsoleMessages', JSON.stringify([]));
+                        }
+                    };
                     
                     // Store original methods
-                    window.__devinOriginalConsole = {
-                        log: window.console.log.bind(console),
-                        info: window.console.info.bind(console),
-                        warn: window.console.warn.bind(console),
-                        error: window.console.error.bind(console)
+                    const originalConsole = {
+                        log: console.log.bind(console),
+                        info: console.info.bind(console),
+                        warn: console.warn.bind(console),
+                        error: console.error.bind(console)
                     };
                     
                     // Helper to stringify any type of argument
@@ -200,22 +214,14 @@ class BaseScraper:
                     // Create wrapper for each console method
                     function wrapConsole(method) {
                         return function() {
-                            const timestamp = new Date().toISOString();
-                            const args = Array.from(arguments).map(safeStringify);
-                            const msg = {
-                                timestamp: timestamp,
-                                type: method,
-                                message: args.join(' ')
-                            };
-                            
-                            // Update stored messages
-                            const currentState = JSON.parse(localStorage.getItem('__devinConsoleState'));
-                            currentState.messages.push(msg);
-                            localStorage.setItem('__devinConsoleState', JSON.stringify(currentState));
-                            
-                            
-                            // Call original method
-                            window.__devinOriginalConsole[method].apply(console, arguments);
+                            try {
+                                const args = Array.from(arguments).map(safeStringify);
+                                const msg = `${method}: ${args.join(' ')}`;
+                                consoleStorage.addMessage(msg);
+                                originalConsole[method].apply(console, arguments);
+                            } catch (e) {
+                                originalConsole.error('Error in console wrapper:', e);
+                            }
                         };
                     }
                     
@@ -225,86 +231,97 @@ class BaseScraper:
                     console.warn = wrapConsole('warn');
                     console.error = wrapConsole('error');
                     
-                    // Update initialization state
-                    state.initialized = true;
-                    localStorage.setItem('__devinConsoleState', JSON.stringify(state));
-                    console.log("DEBUG: Console override initialized");
+                    // Clear previous messages
+                    consoleStorage.clear();
+                    
+                    // Verify console capture is working
+                    const testMsg = "TEST_CONSOLE_CAPTURE_" + Date.now();
+                    console.log(testMsg);
+                    const messages = consoleStorage.getMessages();
+                    const working = messages.some(msg => msg.includes(testMsg));
+                    
+                    console.log("DEVIN_CONSOLE_START");
+                    console.log(JSON.stringify({
+                        initialized: true,
+                        working: working,
+                        messages: messages
+                    }));
+                    console.log("DEVIN_CONSOLE_END");
+                    
+                    return true;
+                } catch (e) {
+                    console.error("ERROR: Failed to initialize console capture:", e);
+                    return false;
                 }
-                
-                // Return current state
-                return JSON.parse(localStorage.getItem('__devinConsoleState'));
             })();
             </run_javascript_browser>''')
             
             # Wait for JavaScript execution
             print('<wait for="browser" seconds="2"/>')
             
-            # Get raw console output
+            # Get console output
             print('<get_browser_console/>')
-            raw_output = self._last_console_output or ""
+            raw_output = self.get_browser_console()
             
-            if not raw_output:
-                self.logger.warning("Empty console output received")
-                return ""
-                
-            # Parse and process console messages
             try:
-                import json
-                import re
+                self.logger.debug("Processing console output...")
+                self.logger.debug(f"Raw output length: {len(raw_output)}")
                 
-                # Extract the localStorage state from console output
-                state_match = re.search(r'Return value: ({.*?})(?=\n|$)', raw_output)
-                if not state_match:
-                    self.logger.warning("No localStorage state found in console output")
-                    return raw_output
+                # Extract messages between markers
+                start_marker = "DEVIN_CONSOLE_START"
+                end_marker = "DEVIN_CONSOLE_END"
+                start_idx = raw_output.find(start_marker)
+                end_idx = raw_output.find(end_marker)
                 
-                # Parse the state
-                try:
-                    state = json.loads(state_match.group(1))
-                except json.JSONDecodeError as e:
-                    self.logger.error(f"Failed to parse localStorage state: {e}")
-                    return raw_output
-                
-                if not state or not isinstance(state, dict):
-                    self.logger.warning("Invalid localStorage state format")
-                    return raw_output
-                
-                messages = state.get('messages', [])
-                if not messages:
-                    self.logger.warning("No messages found in localStorage")
-                    return raw_output
-                
-                # Format messages for output
-                formatted_messages = []
-                for msg in messages:
+                if start_idx != -1 and end_idx != -1:
+                    json_text = raw_output[start_idx + len(start_marker):end_idx].strip()
                     try:
-                        if isinstance(msg, dict):
-                            # Handle structured message format
-                            timestamp = msg.get('timestamp', '')
-                            msg_type = msg.get('type', 'log')
-                            message = msg.get('message', str(msg))
-                            formatted_messages.append(f"[{timestamp}] {msg_type}: {message}")
-                        else:
-                            # Handle legacy or plain string messages
-                            formatted_messages.append(str(msg))
-                    except Exception as msg_err:
-                        self.logger.warning(f"Error formatting message: {msg_err}")
-                        formatted_messages.append(str(msg))
+                        console_data = json.loads(json_text)
+                        self.logger.debug(f"Parsed console data: {console_data}")
+                        
+                        if isinstance(console_data, dict):
+                            if not console_data.get('initialized', False):
+                                self.logger.error("Console capture not initialized")
+                            if not console_data.get('working', False):
+                                self.logger.warning("Console capture reported as not working")
+                            if 'messages' in console_data:
+                                messages = console_data['messages']
+                                self.logger.debug(f"Found {len(messages)} messages")
+                                return '\n'.join(str(msg) for msg in messages)
+                    except json.JSONDecodeError as e:
+                        self.logger.error(f"Failed to parse console JSON: {e}")
                 
-                result = "\n".join(formatted_messages)
-                self.logger.info(f"Successfully processed {len(formatted_messages)} messages")
-                return result
+                # Fallback: try to find any console messages
+                self.logger.debug("Falling back to line-by-line parsing...")
+                messages = []
+                for line in raw_output.split('\n'):
+                    line = line.strip()
+                    if any(line.startswith(prefix) for prefix in ('console.log:', 'console.info:', 'console.warn:', 'console.error:')):
+                        msg = line.split(':', 1)[1].strip()
+                        if msg:
+                            messages.append(msg)
+                            self.logger.debug(f"Found console message: {msg}")
+                    elif line.startswith('Return value:'):
+                        self.logger.debug("Skipping return value line")
+                        continue
+                    elif line and not line.startswith(('DEBUG:', 'INFO:', 'WARNING:', 'ERROR:')):
+                        messages.append(line)
+                        self.logger.debug(f"Found raw message: {line}")
                 
+                if messages:
+                    self.logger.debug(f"Returning {len(messages)} messages")
+                    return '\n'.join(messages)
+                
+                self.logger.warning("No console messages found in output")
+                self.logger.debug(f"Raw console output: {raw_output}")
+                return raw_output
             except Exception as e:
-                self.logger.error(f"Error processing console output: {str(e)}")
+                self.logger.error(f"Error parsing console output: {e}")
+                self.logger.debug(f"Raw console output: {raw_output}")
                 return raw_output
                 
         except Exception as e:
             self.logger.error(f"Error in get_browser_console: {str(e)}")
-            return ""
-            
-        except Exception as e:
-            self.logger.error(f"Error getting console output: {str(e)}")
             return ""
             
     def run_javascript(self, script: str) -> str:
@@ -320,8 +337,16 @@ class BaseScraper:
         try:
             self.logger.debug(f"Running JavaScript: {script[:200]}...")
             
-            # Clear existing console messages
-            print('<run_javascript_browser>window.__consoleMessages = [];</run_javascript_browser>')
+            # Reset console state
+            print('''<run_javascript_browser>
+            (() => {
+                window.__devinConsole = {
+                    messages: [],
+                    initialized: false
+                };
+                return true;
+            })();
+            </run_javascript_browser>''')
             print('<wait for="browser" seconds="1"/>')
             
             # Add verification wrapper around the script
