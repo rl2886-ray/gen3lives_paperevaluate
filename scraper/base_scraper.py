@@ -151,105 +151,102 @@ class BaseScraper:
             return None
             
     def get_browser_console(self) -> str:
-        """Get the browser console output with enhanced verification and retry logic"""
-        max_retries = 5  # Increased retries
-        retry_delay = 3  # Increased delay
-        
-        for attempt in range(max_retries):
+        """Get the browser console output using direct console API access"""
+        try:
+            # Set up console message capture
+            setup_js = '''
+            (function() {
+                if (!window.__consoleMessages) {
+                    window.__consoleMessages = [];
+                    
+                    // Store original console methods
+                    const originalMethods = {
+                        log: console.log,
+                        info: console.info,
+                        warn: console.warn,
+                        error: console.error,
+                        debug: console.debug
+                    };
+                    
+                    // Override console methods
+                    Object.keys(originalMethods).forEach(method => {
+                        console[method] = function(...args) {
+                            // Convert arguments to strings and join
+                            const message = args.map(arg => {
+                                if (typeof arg === 'object') {
+                                    try {
+                                        return JSON.stringify(arg);
+                                    } catch (e) {
+                                        return String(arg);
+                                    }
+                                }
+                                return String(arg);
+                            }).join(' ');
+                            
+                            // Store message with metadata
+                            window.__consoleMessages.push({
+                                type: method,
+                                message: message,
+                                timestamp: new Date().toISOString()
+                            });
+                            
+                            // Call original method
+                            originalMethods[method].apply(console, args);
+                        };
+                    });
+                    
+                    return "Console capture initialized";
+                }
+                return "Console capture already initialized";
+            })();
+            '''
+            
+            # Initialize console capture
+            self.logger.info("Initializing console capture...")
+            print(f'<run_javascript_browser>{setup_js}</run_javascript_browser>')
+            time.sleep(1)
+            
+            # Generate and log a test message
+            test_message = f"CONSOLE_TEST_{int(time.time())}"
+            print(f'<run_javascript_browser>console.log("{test_message}");</run_javascript_browser>')
+            time.sleep(1)
+            
+            # Retrieve captured messages
+            get_messages_js = '''
+            (function() {
+                const messages = window.__consoleMessages || [];
+                console.log("Retrieved", messages.length, "console messages");
+                return JSON.stringify(messages, null, 2);
+            })();
+            '''
+            
+            self.logger.info("Retrieving console messages...")
+            print(f'<run_javascript_browser>{get_messages_js}</run_javascript_browser>')
+            time.sleep(1)
+            
+            # Get the actual console output
+            print('<get_browser_console/>')
+            time.sleep(1)
+            
+            # Parse and format console output
             try:
-                self.logger.info(f"Attempting to get console output (attempt {attempt + 1}/{max_retries})")
+                # The actual console output will be replaced by the system
+                console_output = ""  # System will replace this
                 
-                # First verify browser is responsive
-                verify_js = '''
-                    (function() {
-                        try {
-                            // Test basic browser functionality
-                            if (!window || !document) {
-                                throw new Error("Browser context not available");
-                            }
-                            
-                            // Test console functionality
-                            if (!console || typeof console.log !== 'function') {
-                                throw new Error("Console not available");
-                            }
-                            
-                            return "BROWSER_OK";
-                        } catch (e) {
-                            console.error("Browser verification failed:", e);
-                            return "BROWSER_ERROR: " + e.message;
-                        }
-                    })();
-                '''
-                print(f'<run_javascript_browser>{verify_js}</run_javascript_browser>')
-                time.sleep(1)
-                
-                # Clear console and wait
-                self.logger.debug("Clearing console...")
-                print('<run_javascript_browser>console.clear();</run_javascript_browser>')
-                time.sleep(2)  # Increased wait time
-                
-                # Generate unique marker with timestamp and random component
-                marker = f"CONSOLE_CHECK_{attempt}_{int(time.time())}_{hash(str(time.time()))}"
-                
-                # Add marker with enhanced visibility
-                self.logger.debug(f"Adding console marker: {marker}")
-                marker_js = f'''
-                    (function() {{
-                        console.log("==========================================");
-                        console.log("=== CONSOLE TEST START ===");
-                        console.log("{marker}");
-                        console.log("=== CONSOLE TEST END ===");
-                        console.log("==========================================");
-                        
-                        
-                        // Force flush console
-                        console.log("");
-                        console.log("");
-                    }})();
-                '''
-                print(f'<run_javascript_browser>{marker_js}</run_javascript_browser>')
-                time.sleep(2)  # Increased wait time
-                
-                # Get console output with multiple attempts
-                self.logger.debug("Retrieving console output...")
-                max_output_attempts = 3
-                for output_attempt in range(max_output_attempts):
-                    print('<get_browser_console/>')
-                    time.sleep(retry_delay)
-                    
-                    # Get the actual console output (will be replaced by system)
-                    console_output = ""  # System will replace this
-                    
-                    if console_output:
-                        self.logger.debug(f"Retrieved console output length: {len(console_output)}")
-                        self.logger.debug(f"Console output preview: {console_output[:200]}...")
-                        
-                        if marker in console_output:
-                            self.logger.info(f"Console output captured successfully on attempt {attempt + 1}")
-                            return console_output
-                        else:
-                            self.logger.warning(f"Marker not found in output (output attempt {output_attempt + 1})")
-                    else:
-                        self.logger.warning(f"Empty console output (output attempt {output_attempt + 1})")
-                    
-                    if output_attempt < max_output_attempts - 1:
-                        time.sleep(1)
-                
-                # Take screenshot for debugging if console capture fails
-                if attempt == max_retries - 1:
-                    print('<screenshot_browser>\nDebug: Console capture failed\n</screenshot_browser>')
-                
-                self.logger.warning(f"Console capture failed on attempt {attempt + 1}")
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
+                if console_output:
+                    self.logger.info(f"Successfully retrieved console output ({len(console_output)} bytes)")
+                    return console_output
+                else:
+                    self.logger.warning("Retrieved empty console output")
+                    return ""
                     
             except Exception as e:
-                self.logger.error(f"Error getting console output (attempt {attempt + 1}): {str(e)}")
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-        
-        self.logger.error("Failed to get console output after all retries")
-        return ""
+                self.logger.error(f"Error parsing console output: {str(e)}")
+                return ""
+                
+        except Exception as e:
+            self.logger.error(f"Error in console capture: {str(e)}")
+            return ""
             
     def run_javascript(self, script: str) -> str:
         """
