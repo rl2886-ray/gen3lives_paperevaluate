@@ -154,29 +154,32 @@ class BaseScraper:
             return None
             
     def get_browser_console(self) -> str:
-        """Get the browser console output"""
+        """Get the browser console output with enhanced error handling and retries"""
         try:
-            # Initialize console output storage if not exists
-            if not hasattr(self, '_last_console_output'):
-                self._last_console_output = ""
+            max_retries = 3
+            retry_delay = 1
+            console_output = ""
             
-            # Get console output directly
-            print('<get_browser_console/>')
-            # The system will set self._last_console_output
-            
-            if not self._last_console_output:
-                self.logger.warning("Retrieved empty console output")
-                # Try one more time after a short wait
-                print('<wait for="browser" seconds="1"/>')
-                print('<get_browser_console/>')
-                # The system will set self._last_console_output again
-            
-            if self._last_console_output:
-                self.logger.info(f"Successfully retrieved console output ({len(self._last_console_output)} bytes)")
-            else:
-                self.logger.warning("Console output still empty after retry")
+            for attempt in range(max_retries):
+                # Clear existing console messages
+                print('<run_javascript_browser>window.__consoleMessages = [];</run_javascript_browser>')
+                print(f'<wait for="browser" seconds="{retry_delay}"/>')
                 
-            return self._last_console_output
+                # Get console output
+                print('<get_browser_console/>')
+                console_output = self._last_console_output or ""
+                
+                if console_output:
+                    self.logger.info(f"Successfully retrieved console output on attempt {attempt + 1} ({len(console_output)} bytes)")
+                    break
+                    
+                self.logger.warning(f"Empty console output on attempt {attempt + 1}")
+                print('<screenshot_browser>Checking page state after empty console</screenshot_browser>')
+                
+            if not console_output:
+                self.logger.error("Failed to retrieve console output after all retries")
+                
+            return console_output
             
         except Exception as e:
             self.logger.error(f"Error getting console output: {str(e)}")
@@ -238,7 +241,7 @@ class BaseScraper:
             self.logger.error(f"Error running JavaScript: {str(e)}")
             return ""
     def wait_for_browser(self, seconds: int = 30, check_interval: int = 2, content_check: str = None) -> bool:
-        """Wait for the browser with simplified state checking and reliable console capture
+        """Wait for browser readiness with enhanced state checking and content verification
         
         Args:
             seconds: Maximum time to wait in seconds
@@ -273,17 +276,17 @@ class BaseScraper:
                 if (state.bodyLength === 0) state.errors.push('Empty body');
                 
                 // Check for specific content if requested
-                const contentSelector = '${content_check}';
+                const contentSelector = '" + (content_check || "None") + "';
                 if (contentSelector && contentSelector !== 'None') {
                     const elements = document.querySelectorAll(contentSelector);
                     if (elements.length === 0) {
-                        state.errors.push('Required content not found');
+                        state.errors.push('Required content not found: ' + contentSelector);
                     } else {
                         const visible = Array.from(elements).some(el => 
                             window.getComputedStyle(el).display !== 'none' &&
                             window.getComputedStyle(el).visibility !== 'hidden'
                         );
-                        if (!visible) state.errors.push('Required content not visible');
+                        if (!visible) state.errors.push('Required content not visible: ' + contentSelector);
                     }
                 }
                 
