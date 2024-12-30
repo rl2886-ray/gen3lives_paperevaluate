@@ -25,22 +25,64 @@ def scraper(setup_logging):
     max_retries = 3
     success = False
     
-    # First ensure browser is in a clean state
+    # First ensure browser is in a clean state with extended verification
     print('<restart_browser url="about:blank" />')
-    print('<wait for="browser" seconds="10"/>')
+    print('<wait for="browser" seconds="15"/>')  # Increased initial wait
     
-    # Verify browser is responsive
+    # Verify browser is responsive with detailed state check
     print('''<run_javascript_browser>
     (() => {
         console.log("=== Browser Reset Check ===");
-        return {
+        const state = {
             ready: document.readyState === 'complete',
+            interactive: document.readyState === 'interactive',
+            loading: document.readyState === 'loading',
             url: window.location.href,
-            title: document.title
+            title: document.title,
+            hasBody: !!document.body,
+            bodySize: document.body ? document.body.innerHTML.length : 0,
+            console: {
+                available: typeof console !== 'undefined',
+                log: typeof console.log === 'function',
+                error: typeof console.error === 'function'
+            }
         };
+        console.log("Initial browser state:", JSON.stringify(state, null, 2));
+        return state;
     })();
     </run_javascript_browser>''')
-    print('<wait for="browser" seconds="2"/>')
+    
+    # Take screenshot to verify state
+    print('<screenshot_browser>\nVerifying initial browser state\n</screenshot_browser>')
+    print('<wait for="browser" seconds="5"/>')  # Additional wait after verification
+    
+    # Clear any existing console state
+    print('''<run_javascript_browser>
+    (() => {
+        try {
+            // Reset console state
+            if (window.__consoleMessages) {
+                window.__consoleMessages.length = 0;
+            } else {
+                window.__consoleMessages = [];
+            }
+            
+            // Verify console methods
+            ['log', 'info', 'warn', 'error'].forEach(method => {
+                if (typeof console[method] !== 'function') {
+                    throw new Error(`Console.${method} is not a function`);
+                }
+            });
+            
+            console.log("Console state reset successfully");
+            return true;
+        } catch (e) {
+            console.error("Error resetting console state:", e);
+            return false;
+        }
+    })();
+    </run_javascript_browser>''')
+    print('<wait for="browser" seconds="3"/>')
     
     for attempt in range(max_retries):
         try:

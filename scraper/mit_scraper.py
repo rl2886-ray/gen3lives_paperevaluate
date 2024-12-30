@@ -540,15 +540,39 @@ class MITScraper(TemplateScraper):
                     if (current.tagName === 'P' || current.tagName === 'LI') {
                         const text = current.textContent.trim();
                         
+                        // Check for course codes (MIT format: XX.XXX)
+                        const courseCodeMatch = text.match(/([0-9]{1,2}[.][0-9]{3})/g);
+                        if (courseCodeMatch) {
+                            info.courses.course_codes.push(...courseCodeMatch);
+                        }
+
                         // Check for core courses
                         if (text.toLowerCase().includes('core') || 
                             text.toLowerCase().includes('required')) {
                             info.courses.core_courses.push(text);
+                            
+                            // Try to extract course description if available
+                            const nextSibling = current.nextElementSibling;
+                            if (nextSibling && nextSibling.tagName === 'P') {
+                                info.courses.course_descriptions.push({
+                                    course: text,
+                                    description: nextSibling.textContent.trim()
+                                });
+                            }
                         }
+                        
                         // Check for electives
                         if (text.toLowerCase().includes('elective')) {
                             info.courses.electives.push(text);
                         }
+                        
+                        // Check for prerequisites
+                        if (text.toLowerCase().includes('prerequisite') || 
+                            text.toLowerCase().includes('pre-requisite') ||
+                            text.toLowerCase().includes('required background')) {
+                            info.courses.prerequisites.push(text);
+                        }
+                        
                         // Check for total credits
                         if (text.toLowerCase().includes('credit')) {
                             const creditMatch = text.match(/([0-9]+)[ ]*credits?/i);
@@ -1200,7 +1224,10 @@ class MITScraper(TemplateScraper):
                 'courses': {
                     'core_courses': [],
                     'electives': [],
-                    'total_credits': None
+                    'total_credits': None,
+                    'course_codes': [],
+                    'course_descriptions': [],
+                    'prerequisites': []
                 }
             }
             
