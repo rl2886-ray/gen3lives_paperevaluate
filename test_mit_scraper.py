@@ -20,38 +20,159 @@ def scraper(setup_logging):
     """Create a MITScraper instance for testing with browser verification"""
     scraper = MITScraper()
     
-    # Initialize browser with robust verification
+    # Initialize browser with enhanced verification and retries
     test_url = "https://oge.mit.edu/programs/"
-    print(f'<navigate_browser url="{test_url}"/>')
-    print('<wait for="browser" seconds="5"/>')
+    max_retries = 3
+    success = False
     
-    # Initialize console capture with robust verification
-    scraper.initialize_console_capture()
+    # First ensure browser is in a clean state
+    print('<restart_browser url="about:blank" />')
+    print('<wait for="browser" seconds="10"/>')
     
-    # Test message capture with verification
+    # Verify browser is responsive
     print('''<run_javascript_browser>
     (() => {
-        // Verify console state
-        const state = {
-            initialized: window.__consoleInitialized === true,
-            hasMessages: Array.isArray(window.__consoleMessages),
-            hasOriginalConsole: typeof window.__originalConsole === 'object',
-            consoleWrapped: console.log.toString().includes('wrapConsole')
-        };
-        
-        // Log test messages
-        console.log("TEST: Console verification message 1");
-        console.info("TEST: Console verification message 2");
-        console.warn("TEST: Console verification message 3");
-        
-        // Return detailed state
+        console.log("=== Browser Reset Check ===");
         return {
-            ...state,
-            messageCount: window.__consoleMessages.length,
-            messages: window.__consoleMessages
+            ready: document.readyState === 'complete',
+            url: window.location.href,
+            title: document.title
         };
     })();
     </run_javascript_browser>''')
+    print('<wait for="browser" seconds="2"/>')
+    
+    for attempt in range(max_retries):
+        try:
+            scraper.logger.info(f"Browser initialization attempt {attempt + 1}")
+            
+            # Navigate to test URL
+            print(f'<navigate_browser url="{test_url}"/>')
+            print('<wait for="browser" seconds="10"/>')  # Increased wait time
+            
+            # Verify page load
+            print('''<run_javascript_browser>
+            (() => {
+                console.log("=== Browser State Check ===");
+                console.log("Document Ready State:", document.readyState);
+                console.log("URL:", window.location.href);
+                console.log("Title:", document.title);
+                return {
+                    ready: document.readyState === 'complete',
+                    url: window.location.href,
+                    title: document.title
+                };
+            })();
+            </run_javascript_browser>''')
+            
+            # Clear any existing console state
+            print('''<run_javascript_browser>
+            (() => {
+                try {
+                    console.log("=== Cleaning Browser State ===");
+                    
+                    // Force cleanup of existing state
+                    ['log', 'info', 'warn', 'error'].forEach(method => {
+                        if (console[method].__original) {
+                            console[method] = console[method].__original;
+                            console.log(`Restored original ${method} method`);
+                        }
+                    });
+                    
+                    // Clean up global state
+                    ['__consoleMessages', '__originalConsole', '__consoleInitialized'].forEach(prop => {
+                        if (window[prop]) {
+                            delete window[prop];
+                            console.log(`Cleaned up ${prop}`);
+                        }
+                    });
+                    
+                    console.log("Browser state cleaned successfully");
+                    return true;
+                } catch (e) {
+                    console.error("Error cleaning browser state:", e);
+                    return false;
+                }
+            })();
+            </run_javascript_browser>''')
+            print('<wait for="browser" seconds="5"/>')  # Increased wait time
+            
+            # Initialize console capture with detailed logging
+            scraper.logger.info("Initializing console capture...")
+            if not scraper.initialize_console_capture():
+                scraper.logger.error("Failed to initialize console capture")
+                raise Exception("Failed to initialize console capture")
+            
+            scraper.logger.info("Console capture initialized, verifying functionality...")
+            
+            # Verify console functionality with detailed state checks
+            print('''<run_javascript_browser>
+            (() => {
+                try {
+                    console.log("=== Console State Verification ===");
+                    
+                    // Check initialization state
+                    const state = {
+                        initialized: window.__consoleInitialized === true,
+                        hasMessages: Array.isArray(window.__consoleMessages),
+                        hasOriginalConsole: typeof window.__originalConsole === 'object',
+                        wrappedMethods: {}
+                    };
+                    
+                    // Check each console method
+                    ['log', 'info', 'warn', 'error'].forEach(method => {
+                        const wrapped = console[method].__wrapped === true;
+                        const hasOriginal = console[method].__original !== undefined;
+                        state.wrappedMethods[method] = {
+                            wrapped,
+                            hasOriginal,
+                            type: typeof console[method]
+                        };
+                        console.log(`${method} method state:`, state.wrappedMethods[method]);
+                    });
+                    
+                    // Log test messages
+                    console.log("TEST: Console verification message 1");
+                    console.info("TEST: Console verification message 2");
+                    console.warn("TEST: Console verification message 3");
+                    
+                    // Check message capture
+                    const messages = window.__consoleMessages || [];
+                    console.log("Captured message count:", messages.length);
+                    
+                    // Return detailed state
+                    return {
+                        ...state,
+                        messageCount: messages.length,
+                        messages: messages.slice(-5),  // Last 5 messages for verification
+                        documentReady: document.readyState === 'complete',
+                        url: window.location.href
+                    };
+                } catch (e) {
+                    console.error("Error in verification:", e);
+                    return { error: e.message, stack: e.stack };
+                }
+            })();
+            </run_javascript_browser>''')
+            print('<wait for="browser" seconds="2"/>')
+            
+            # Take verification screenshot
+            print('<screenshot_browser>\nVerifying browser and console initialization\n</screenshot_browser>')
+            
+            # Check console output
+            console_output = scraper.get_browser_console()
+            if not console_output or "TEST: Console verification message" not in console_output:
+                raise Exception("Console verification failed")
+                
+            success = True
+            break
+            
+        except Exception as e:
+            print(f'<screenshot_browser>\nBrowser initialization attempt {attempt + 1} failed: {str(e)}\n</screenshot_browser>')
+            if attempt < max_retries - 1:
+                print('<wait for="browser" seconds="5"/>')
+                continue
+            raise Exception(f"Failed to initialize browser after {max_retries} attempts")
     print('<wait for="browser" seconds="2"/>')
     
     # Check document readiness
@@ -93,10 +214,34 @@ def scraper(setup_logging):
     
     yield scraper
     
-    # Cleanup with verification
-    print('<run_javascript_browser>window.__consoleMessages = [];</run_javascript_browser>')
+    # Enhanced cleanup with verification
+    print('''<run_javascript_browser>
+    (() => {
+        try {
+            // Restore original console methods
+            ['log', 'info', 'warn', 'error'].forEach(method => {
+                if (console[method].__original) {
+                    console[method] = console[method].__original;
+                }
+            });
+            
+            // Clean up global state
+            ['__consoleMessages', '__originalConsole', '__consoleInitialized', '__cleanupConsole'].forEach(prop => {
+                if (window[prop]) {
+                    delete window[prop];
+                    console.log(`Cleaned up ${prop}`);
+                }
+            });
+            
+            console.clear();
+            return true;
+        } catch (e) {
+            console.error("Error in cleanup:", e);
+            return false;
+        }
+    })();
+    </run_javascript_browser>''')
     print('<wait for="browser" seconds="2"/>')
-    print('<run_javascript_browser>console.clear();</run_javascript_browser>')
     print('<screenshot_browser>\nVerifying cleanup\n</screenshot_browser>')
 
 def test_find_program_urls(scraper):
@@ -182,6 +327,9 @@ def test_extract_program_info_success(scraper):
     assert isinstance(result['program_features']['specializations'], list)
     assert isinstance(result['courses']['core_courses'], list)
     assert isinstance(result['courses']['total_credits'], (int, type(None)))
+    assert isinstance(result['courses']['course_codes'], list)
+    assert isinstance(result['courses']['course_descriptions'], list)
+    assert isinstance(result['courses']['prerequisites'], list)
     
     # Test field values
     assert result['program_info']['department'] == test_program['department']
