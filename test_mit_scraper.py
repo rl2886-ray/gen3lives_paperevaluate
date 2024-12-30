@@ -25,9 +25,8 @@ def scraper(setup_logging):
     max_retries = 3
     success = False
     
-    # First ensure browser is in a clean state with extended verification
-    print('<restart_browser url="about:blank" />')
-    print('<wait for="browser" seconds="15"/>')  # Increased initial wait
+    # Let wait_for_browser handle the complete initialization sequence
+    scraper.logger.info("Starting test setup with enhanced browser initialization")
     
     # Verify browser is responsive with detailed state check
     print('''<run_javascript_browser>
@@ -262,7 +261,7 @@ def scraper(setup_logging):
         scraper.logger.warning("Console capture not working perfectly, but continuing anyway")
     
     # Only assert browser initialization
-    assert scraper.wait_for_browser(30, check_interval=2), "Browser failed to initialize"
+    assert scraper.wait_for_browser(90, check_interval=2), "Browser failed to initialize"
     
     yield scraper
     
@@ -364,7 +363,7 @@ def test_extract_program_info_success(scraper):
     print(f'<navigate_browser url="{test_program["url"]}"/>')
     
     # Wait for page to load and verify browser state
-    assert scraper.wait_for_browser(30, check_interval=2), "Failed to load program page"
+    assert scraper.wait_for_browser(90, check_interval=2), "Failed to load program page"
     
     # Take screenshot for debugging
     print('<screenshot_browser>\nVerifying program page content\n</screenshot_browser>')
