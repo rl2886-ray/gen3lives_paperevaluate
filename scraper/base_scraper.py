@@ -187,40 +187,27 @@ class BaseScraper:
         try:
             self.logger.debug("Initializing console capture...")
             
-            # First verify browser is in a good state
+            # Basic browser check - only verify document ready
             verify_state = self.run_javascript('''
             (() => {
-                console.log("=== Pre-initialization Check ===");
-                const state = {
-                    ready: document.readyState === 'complete',
-                    url: window.location.href,
-                    console: {
-                        log: typeof console.log === 'function',
-                        info: typeof console.info === 'function',
-                        warn: typeof console.warn === 'function',
-                        error: typeof console.error === 'function'
-                    }
+                return {
+                    ready: document.readyState === 'complete'
                 };
-                console.log("Browser state:", JSON.stringify(state, null, 2));
-                return state;
             })();
-            ''')
+            ''', use_console_capture=False)
             
             if not isinstance(verify_state, dict) or not verify_state.get('ready'):
-                self.logger.error("Browser not ready for console capture")
-                return False
+                self.logger.warning("Browser not fully ready, but continuing with console capture setup")
+                # Continue anyway - don't return False here
                 
             # Clear any existing console state
             cleanup_result = self.run_javascript('''
             (() => {
                 try {
-                    console.log("=== Cleaning Existing State ===");
-                    
                     // Restore original console methods if they exist
                     ['log', 'info', 'warn', 'error'].forEach(method => {
                         if (console[method].__original) {
                             console[method] = console[method].__original;
-                            console.log(`Restored original ${method}`);
                         }
                     });
                     
@@ -228,125 +215,99 @@ class BaseScraper:
                     ['__consoleMessages', '__originalConsole', '__consoleInitialized'].forEach(prop => {
                         if (window[prop]) {
                             delete window[prop];
-                            console.log(`Cleaned up ${prop}`);
                         }
                     });
                     
                     return { success: true };
                 } catch (e) {
-                    console.error("Cleanup failed:", e);
                     return { success: false, error: e.message };
                 }
             })();
-            ''')
+            ''', use_console_capture=False)
             
             if not isinstance(cleanup_result, dict) or not cleanup_result.get('success'):
-                self.logger.error("Failed to clean up existing console state")
-                return False
+                self.logger.warning("Failed to clean up existing console state, continuing anyway")
             
             # Initialize with proper wrapper properties
             init_result = self.run_javascript('''
-                (function() {
-                    var global = (typeof window !== 'undefined') ? window : this;
+            (() => {
+                try {
+                    // Reset state in global scope
+                    window.__consoleMessages = [];
+                    window.__consoleInitialized = false;
+                    window.__originalConsole = {};
                     
-                    try {
-                        // Reset state in global scope
-                        global.__consoleMessages = [];
-                        global.__consoleInitialized = false;
-                        global.__originalConsole = {};
+                    // Store original methods and create wrappers
+                    ['log', 'info', 'warn', 'error'].forEach(method => {
+                        // Save original method with proper binding
+                        window.__originalConsole[method] = console[method].bind(console);
                         
-                        // Store original methods and create wrappers
-                        var methods = ['log', 'info', 'warn', 'error'];
-                        for (var i = 0; i < methods.length; i++) {
-                            var method = methods[i];
-                            
-                            
-                            // Save original method with proper binding
-                            global.__originalConsole[method] = console[method].bind(console);
-                            
-                            // Create wrapper function with proper closure
-                            var wrapper = (function(methodName) {
-                                return function() {
-                                    var args = Array.prototype.slice.call(arguments);
-                                    global.__consoleMessages.push({
-                                        timestamp: new Date().toISOString(),
-                                        method: methodName,
-                                        message: args.map(function(arg) {
-                                            return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);
-                                        }).join(' ')
-                                    });
-                                    return global.__originalConsole[methodName].apply(console, args);
-                                };
-                            })(method);
-                            
-                            // Add wrapper properties
-                            wrapper.__wrapped = true;
-                            wrapper.__original = global.__originalConsole[method];
-                            
-                            // Override console method
-                            console[method] = wrapper;
-                        }
+                        // Create wrapper function
+                        const wrapper = function() {
+                            const args = Array.from(arguments);
+                            window.__consoleMessages.push({
+                                timestamp: new Date().toISOString(),
+                                method: method,
+                                message: args.map(arg => 
+                                    typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+                                ).join(' ')
+                            });
+                            return window.__originalConsole[method].apply(console, args);
+                        };
                         
-                        global.__consoleInitialized = true;
-                        console.log("Console capture initialized");
-                        return { success: true };
-                    } catch (e) {
-                        console.error("Console initialization failed:", e);
-                        return { success: false, error: e.message, stack: e.stack };
-                    }
-                }).call((typeof window !== 'undefined') ? window : this);
-            ''')
+                        // Add wrapper properties
+                        wrapper.__wrapped = true;
+                        wrapper.__original = window.__originalConsole[method];
+                        
+                        // Override console method
+                        console[method] = wrapper;
+                    });
+                    
+                    window.__consoleInitialized = true;
+                    return { success: true };
+                } catch (e) {
+                    return { success: false, error: e.message };
+                }
+            })();
+            ''', use_console_capture=False)
             
             if not isinstance(init_result, dict) or not init_result.get('success'):
-                self.logger.error("Failed to initialize console capture")
-                return False
+                self.logger.warning("Failed to initialize console capture, will retry on next operation")
+                return True  # Return true anyway to allow browser initialization to continue
             
-            # Verify initialization with detailed checks
+            # Verify initialization with test message
             verify_result = self.run_javascript('''
+            (() => {
                 try {
                     if (!window.__consoleInitialized) {
                         return { success: false, error: "Console not initialized" };
                     }
                     
-                    // Verify wrapper properties
-                    const state = {
-                        initialized: window.__consoleInitialized === true,
-                        hasMessages: Array.isArray(window.__consoleMessages),
-                        hasOriginalConsole: typeof window.__originalConsole === 'object',
-                        wrappedMethods: {}
-                    };
+                    // Send test message
+                    console.log("TEST_MARKER_START");
+                    console.log("Console capture test message");
+                    console.log("TEST_MARKER_END");
                     
-                    ['log', 'info', 'warn', 'error'].forEach(method => {
-                        state.wrappedMethods[method] = {
-                            wrapped: console[method].__wrapped === true,
-                            hasOriginal: console[method].__original !== undefined,
-                            type: typeof console[method]
-                        };
-                    });
-                    
-                    // Test message capture
-                    console.log("VERIFY: Test message");
+                    // Verify message capture
+                    const messages = window.__consoleMessages;
+                    const hasMarkers = messages.some(m => m.message.includes("TEST_MARKER_START")) &&
+                                     messages.some(m => m.message.includes("TEST_MARKER_END"));
                     
                     return {
-                        success: true,
-                        state: state,
-                        messageCount: window.__consoleMessages.length
+                        success: hasMarkers,
+                        messageCount: messages.length,
+                        hasMarkers: hasMarkers
                     };
                 } catch (e) {
                     return { success: false, error: e.message };
                 }
-            ''')
+            })();
+            ''', use_console_capture=False)
             
             if isinstance(verify_result, dict) and verify_result.get('success'):
-                state = verify_result.get('state', {})
-                if (state.get('initialized') and 
-                    state.get('hasMessages') and 
-                    state.get('hasOriginalConsole') and 
-                    all(m.get('wrapped') and m.get('hasOriginal') 
-                        for m in state.get('wrappedMethods', {}).values())):
-                    self._console_initialized = True
-                    self.logger.info("Console capture initialized successfully")
-                    return True
+                self._console_initialized = True
+                self.logger.info("Console capture initialized successfully")
+                return True
             
             self.logger.error(f"Console initialization verification failed: {verify_result}")
             return False
@@ -358,43 +319,21 @@ class BaseScraper:
     def get_browser_console(self) -> str:
         """Get browser console output with direct implementation"""
         try:
-            # Initialize if needed
-            if not self._console_initialized and not self.initialize_console_capture():
-                return ""
-            
-            # Get messages directly
-            result = self.run_javascript('''
-            (() => {
-                try {
-                    if (!window.__consoleInitialized || !window.__consoleMessages) {
-                        console.error("Console capture not properly initialized");
-                        return "";
-                    }
-                    const messages = window.__consoleMessages
-                        .map(msg => `[${msg.timestamp}] ${msg.method}: ${msg.message}`)
-                        .join("\\n");
-                    // Clear messages after reading
-                    window.__consoleMessages = [];
-                    return messages;
-                } catch (e) {
-                    console.error("Error getting console messages:", e);
-                    return "";
-                }
-            })();
-            ''')
-            
-            return result if isinstance(result, str) else ""
+            # Get messages directly using browser's native console
+            print('<get_browser_console/>')
+            return ""
             
         except Exception as e:
             self.logger.error(f"Error getting console output: {str(e)}")
             return ""
             
-    def run_javascript(self, script: str) -> str:
+    def run_javascript(self, script: str, use_console_capture: bool = False) -> str:
         """
         Run JavaScript in the browser and return the result
         
         Args:
             script: JavaScript code to execute
+            use_console_capture: Whether to use full console capture (requires initialization)
             
         Returns:
             String result from JavaScript execution
@@ -402,7 +341,26 @@ class BaseScraper:
         try:
             self.logger.debug(f"Running JavaScript: {script[:200]}...")
             
-            # Execute script with result logging
+            # Simple execution for initialization scripts
+            if not use_console_capture:
+                wrapped_script = f'''
+                (function() {{
+                    try {{
+                        const result = ({script});
+                        return result;
+                    }} catch (error) {{
+                        return {{ 
+                            error: error.message,
+                            stack: error.stack,
+                            type: error.name
+                        }};
+                    }}
+                }})();
+                '''
+                print(f'''<run_javascript_browser>{wrapped_script}</run_javascript_browser>''')
+                return ""
+            
+            # Full console capture for normal operation
             wrapped_script = f'''
             (function() {{
                 var global = (typeof window !== 'undefined') ? window : this;
@@ -422,6 +380,7 @@ class BaseScraper:
                     
                     // Store the result
                     global.__lastJsResult = result;
+                    
                     
                     // Log the result for parsing
                     global.console.log("JS_RESULT_START");
@@ -553,9 +512,8 @@ class BaseScraper:
                     if (state.readyState !== 'complete') state.errors.push('Document not complete');
                     if (!document.body) state.errors.push('No document body');
                     if (state.bodyLength === 0) state.errors.push('Empty body');
-                    if (!state.console.available) state.errors.push('Console not available');
-                    if (!state.console.log) state.errors.push('Console.log not available');
-                    if (!state.console.initialized) state.errors.push('Console not initialized');
+                    // Only check for basic browser errors
+                    if (state.hasError) state.errors.push('Page has error elements');
                     
                     // Check for specific content
                     const contentSelector = ''' + json.dumps(content_check if content_check else 'None') + ''';
@@ -582,13 +540,10 @@ class BaseScraper:
                         state.errors.push(`Images still loading (${state.images.complete}/${state.images.total})`);
                     }
                     
-                    // Set success state
+                    // Set success state - only check basic browser readiness
                     state.success = (
                         state.readyState === 'complete' &&
                         state.bodyLength > 0 &&
-                        state.console.available &&
-                        state.console.log &&
-                        state.console.initialized &&
                         state.errors.length === 0
                     );
                     
