@@ -532,19 +532,24 @@ class BaseScraper:
                         }
                     }
                     
-                    // Check script and image loading
+                    // Only log script and image loading state for debugging
                     if (state.scripts.total > 0 && state.scripts.loaded < state.scripts.total) {
-                        state.errors.push(`Scripts still loading (${state.scripts.loaded}/${state.scripts.total})`);
+                        console.log(`Scripts loading progress: ${state.scripts.loaded}/${state.scripts.total}`);
                     }
                     if (state.images.total > 0 && state.images.complete < state.images.total) {
-                        state.errors.push(`Images still loading (${state.images.complete}/${state.images.total})`);
+                        console.log(`Images loading progress: ${state.images.complete}/${state.images.total}`);
                     }
                     
-                    // Set success state - only check basic browser readiness
+                    // Set success state - only check minimal browser readiness
+                    // Don't require all errors to be resolved, just check basic functionality
                     state.success = (
-                        state.readyState === 'complete' &&
-                        state.bodyLength > 0 &&
-                        state.errors.length === 0
+                        state.readyState === 'complete' || state.readyState === 'interactive'
+                    );
+                    
+                    // Log state for debugging
+                    state.errors = state.errors.filter(err => 
+                        err !== 'Scripts still loading' && 
+                        !err.includes('Images still loading')
                     );
                     
                     console.log("BROWSER_STATE:" + JSON.stringify(state));
