@@ -296,9 +296,9 @@ def scraper(setup_logging):
     print('<screenshot_browser>\nVerifying cleanup\n</screenshot_browser>')
 
 def test_find_program_urls(scraper):
-    """Test finding program URLs"""
+    """Test finding data-related program URLs"""
     programs = scraper.find_program_urls()
-    assert len(programs) > 0, "Should find some STEM programs"
+    assert len(programs) > 0, "Should find some data-related programs"
     
     # Test program URL structure
     program = programs[0]
@@ -307,6 +307,17 @@ def test_find_program_urls(scraper):
     assert 'department' in program, "Program should have department"
     assert 'degree_type' in program, "Program should have degree type"
     assert 'application_deadline' in program, "Program should have application deadline"
+    
+    # Verify at least one program is data-related
+    data_related = False
+    for program in programs:
+        if any(keyword.lower() in program['title'].lower() for keyword in [
+            'data', 'analytics', 'statistics', 'machine learning',
+            'computational', 'information systems'
+        ]):
+            data_related = True
+            break
+    assert data_related, "Should find at least one data-related program"
 
 def test_minimal_program_info(scraper):
     """Test creation of minimal program info"""
@@ -353,9 +364,9 @@ def test_minimal_program_info(scraper):
 def test_extract_program_info_success(scraper):
     """Test successful program info extraction with proper browser handling"""
     test_program = {
-        'title': 'Electrical Engineering and Computer Science',
-        'url': 'https://oge.mit.edu/programs/eecs/',
-        'department': 'Electrical Engineering and Computer Science',
+        'title': 'Data Science and Machine Learning',
+        'url': 'https://oge.mit.edu/programs/data-science/',
+        'department': 'Institute for Data, Systems, and Society',
         'degree_type': 'MS'
     }
     
