@@ -22,48 +22,36 @@ class MITScraper(TemplateScraper):
         self.base_url = "https://oge.mit.edu"
         self.programs_url = "https://oge.mit.edu/graduate-admissions/programs/"
     
-    # STEM program detection keywords
-    STEM_KEYWORDS = [
-        'engineering', 'computer', 'science', 'technology', 'mathematics', 
-        'physics', 'chemistry', 'biology', 'systems', 'robotics', 
-        'data', 'computation', 'artificial intelligence', 'machine learning', 
-        'aerospace', 'mechanical', 'electrical', 'materials', 
-        'biomedical', 'environmental', 'nuclear', 'brain', 'cognitive',
-        'computational', 'oceanography', 'operations research',
-        'analytics', 'informatics', 'biotechnology', 'bioinformatics',
-        'quantum', 'nanotechnology', 'automation'
+    # Data-related program detection keywords
+    DATA_KEYWORDS = [
+        'data', 'analytics', 'statistics', 'machine learning',
+        'artificial intelligence', 'computational', 'information systems',
+        'business analytics', 'data science', 'quantitative',
+        'operations research', 'mathematical', 'computer science',
+        'informatics', 'business intelligence', 'predictive analytics',
+        'big data', 'data engineering', 'data mining', 'deep learning'
     ]
     
-    # Programs that should be included even if they don't match keywords
-    STEM_PROGRAMS = [
-        'Aeronautics and Astronautics',
-        'Biological Engineering',
-        'Brain and Cognitive Sciences',
-        'Chemical Engineering',
-        'Chemistry',
-        'Civil and Environmental Engineering',
-        'Computational and Systems Biology',
-        'Computational Science and Engineering',
-        'Earth, Atmospheric, and Planetary Sciences',
-        'Electrical Engineering and Computer Science',
-        'Materials Science and Engineering',
-        'Mathematics',
-        'Mechanical Engineering',
-        'Media Arts and Sciences',
-        'MIT-WHOI Joint Program in Oceanography',
-        'Nuclear Science and Engineering',
+    # Data-related programs at MIT that should be included
+    DATA_PROGRAMS = [
         'Operations Research Center',
-        'Physics',
-        'System Design and Management',
-        'Technology and Policy Program'
+        'Computational Science and Engineering',
+        'Electrical Engineering and Computer Science',
+        'Mathematics',
+        'Business Analytics',
+        'Data Science and Machine Learning',
+        'Information Systems',
+        'Statistics and Data Science',
+        'Technology and Policy Program',
+        'System Design and Management'
     ]
     
-    def is_stem_program(self, program_name: str) -> bool:
+    def is_data_program(self, program_name: str) -> bool:
         """
-        Check if a program is STEM-related based on its name
+        Check if a program is data-related based on its name
         """
-        return any(keyword.lower() in program_name.lower() for keyword in self.STEM_KEYWORDS) or \
-               any(program.lower() in program_name.lower() for program in self.STEM_PROGRAMS)
+        return any(keyword.lower() in program_name.lower() for keyword in self.DATA_KEYWORDS) or \
+               any(program.lower() in program_name.lower() for program in self.DATA_PROGRAMS)
     
     def find_program_urls(self) -> List[Dict]:
         """Find all STEM master's program URLs"""
@@ -85,23 +73,23 @@ class MITScraper(TemplateScraper):
                 const rows = tbody ? Array.from(tbody.querySelectorAll('tr')) : [];
                 console.log(`Found ${rows.length} program rows`);
                 
-                // Define STEM detection criteria
-                const STEM_KEYWORDS = ['engineering', 'computer', 'science', 'technology', 'mathematics', 
-                    'physics', 'chemistry', 'biology', 'systems', 'robotics', 'data', 'computation',
-                    'artificial intelligence', 'machine learning', 'aerospace', 'mechanical', 'electrical',
-                    'materials', 'biomedical', 'environmental', 'nuclear', 'brain', 'cognitive',
-                    'computational', 'oceanography', 'operations research', 'analytics', 'informatics',
-                    'biotechnology', 'bioinformatics', 'quantum', 'nanotechnology', 'automation'];
+                // Define data program detection criteria
+                const DATA_KEYWORDS = ['data', 'analytics', 'statistics', 'machine learning',
+                    'artificial intelligence', 'computational', 'information systems',
+                    'business analytics', 'data science', 'quantitative',
+                    'operations research', 'mathematical', 'computer science',
+                    'informatics', 'business intelligence', 'predictive analytics',
+                    'big data', 'data engineering', 'data mining', 'deep learning'];
                 
-                const STEM_PROGRAMS = ['Aeronautics and Astronautics', 'Biological Engineering',
-                    'Brain and Cognitive Sciences', 'Chemical Engineering', 'Chemistry',
-                    'Civil and Environmental Engineering', 'Computational and Systems Biology',
-                    'Computational Science and Engineering', 'Earth, Atmospheric, and Planetary Sciences',
-                    'Electrical Engineering and Computer Science', 'Materials Science and Engineering',
-                    'Mathematics', 'Mechanical Engineering', 'Media Arts and Sciences',
-                    'MIT-WHOI Joint Program in Oceanography', 'Nuclear Science and Engineering',
-                    'Operations Research Center', 'Physics', 'System Design and Management',
-                    'Technology and Policy Program'];
+                const DATA_PROGRAMS = ['Operations Research Center',
+                    'Computational Science and Engineering',
+                    'Electrical Engineering and Computer Science',
+                    'Mathematics', 'Business Analytics',
+                    'Data Science and Machine Learning',
+                    'Information Systems',
+                    'Statistics and Data Science',
+                    'Technology and Policy Program',
+                    'System Design and Management'];
                 
                 console.log("=== Processing Programs ===");
                 
@@ -126,23 +114,23 @@ class MITScraper(TemplateScraper):
                             console.log(`Application Deadline: ${deadline}`);
                             
                             // Detailed STEM check logging
-                            const matchingKeywords = STEM_KEYWORDS.filter(kw => 
+                            const matchingKeywords = DATA_KEYWORDS.filter(kw => 
                                 title.toLowerCase().includes(kw.toLowerCase())
                             );
-                            const matchingPrograms = STEM_PROGRAMS.filter(p => 
+                            const matchingPrograms = DATA_PROGRAMS.filter(p => 
                                 title.includes(p)
                             );
                             
-                            const isSTEM = matchingKeywords.length > 0 || matchingPrograms.length > 0;
+                            const isDataProgram = matchingKeywords.length > 0 || matchingPrograms.length > 0;
                             
-                            console.log("STEM Analysis:", {
-                                isSTEM: isSTEM,
+                            console.log("Data Program Analysis:", {
+                                isDataProgram: isDataProgram,
                                 matchingKeywords: matchingKeywords,
                                 matchingPrograms: matchingPrograms
                             });
                             
-                            if (isSTEM) {
-                                console.log(`Found STEM program: ${title}`);
+                            if (isDataProgram) {
+                                console.log(`Found data-related program: ${title}`);
                                 try {
                                     // Extract department and degree type from title
                                     const departmentMatch = title.match(/^([^(]+?)(?:[ ]+\\(|$)/);
@@ -179,17 +167,17 @@ class MITScraper(TemplateScraper):
                 stats: {
                     total_rows_processed: rows.length,
                     total_programs_found: programs.length,
-                    stem_programs_found: programs.filter(p => p.is_stem).length
+                    data_programs_found: programs.filter(p => p.is_data_program).length
                 },
-                stem_keywords_used: STEM_KEYWORDS,
-                stem_programs_list: STEM_PROGRAMS,
+                data_keywords_used: DATA_KEYWORDS,
+                data_programs_list: DATA_PROGRAMS,
                 programs: programs
             };
             
             console.log("\n=== Extraction Summary ===");
             console.log(`Total rows processed: ${results.stats.total_rows_processed}`);
             console.log(`Total programs found: ${results.stats.total_programs_found}`);
-            console.log(`STEM programs found: ${results.stats.stem_programs_found}`);
+            console.log(`Data-related programs found: ${results.stats.data_programs_found}`);
             
             console.log("\nMIT_SCRAPER_START");
             console.log(JSON.stringify(results, null, 2));
@@ -231,14 +219,14 @@ class MITScraper(TemplateScraper):
             # Filter for STEM programs and add metadata
             stem_programs = []
             for program in programs_data:
-                if self.is_stem_program(program['title']):
-                    self.logger.info(f"Found STEM program: {program['title']}")
+                if self.is_data_program(program['title']):
+                    self.logger.info(f"Found data-related program: {program['title']}")
                     program['department'] = program['title']
                     program['degree_type'] = 'MS'
-                    program['is_stem'] = True
+                    program['is_data_program'] = True
                     stem_programs.append(program)
                 else:
-                    self.logger.debug(f"Skipping non-STEM program: {program['title']}")
+                    self.logger.debug(f"Skipping non-data-related program: {program['title']}")
             
             self.logger.info(f"Found {len(stem_programs)} STEM programs out of {len(programs_data)} total programs")
             return stem_programs
